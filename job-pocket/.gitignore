@@ -1,0 +1,7 @@
+.env
+.env.*
+!.env.example
+node_modules/
+岗位夹备份-*.json
+playwright-report/
+test-results/
