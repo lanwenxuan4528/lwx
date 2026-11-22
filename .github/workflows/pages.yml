@@ -1,0 +1,39 @@
+name: Publish browser edition
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: unsung-pages
+  cancel-in-progress: true
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/configure-pages@v5
+      - name: Assemble static site and install the pinned browser model
+        run: |
+          set -eu
+          mkdir -p site/demucs
+          cp index.html site/
+          cp demucs/worker.js site/demucs/
+          upstream=https://raw.githubusercontent.com/bengfarrell/demucs-wasm/35c8bd5b74c56f630082058179cd8f57cb192fb2
+          for name in LICENSE demucs_onnx_simd.js demucs_onnx_simd.wasm; do
+            curl --fail --location --retry 3 --max-time 300 "$upstream/$name" -o "site/demucs/$name"
+          done
+          curl --fail --location --retry 3 --max-time 300 "$upstream/models/htdemucs.ort.gzipped" -o site/demucs/htdemucs.ort.gzipped
+          test "$(wc -c < site/demucs/htdemucs.ort.gzipped)" -eq 54471499
+          gzip -t site/demucs/htdemucs.ort.gzipped
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: publish
+        uses: actions/deploy-pages@v4
