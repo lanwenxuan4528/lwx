@@ -27,6 +27,7 @@ self.onmessage = async ({ data: { left, right, model } }) => {
       const accompaniment = stereo();
       for (let start = 0; ; start += CHUNK - OVERLAP) {
         const end = Math.min(start + CHUNK, left.length);
+        self.postMessage({ chunkStart: start, chunkEnd: end, total: left.length });
         runtime.HEAPF32.set(left.subarray(start, end), inputs[0] / 4);
         runtime.HEAPF32.set(right.subarray(start, end), inputs[1] / 4);
         runtime._modelDemixSegment(...inputs, end - start, ...outputs, 0, 0, 0, 0, false, 1, 0);
