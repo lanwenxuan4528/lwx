@@ -113,7 +113,10 @@ const server = createServer({requestTimeout:20000}, async (req, res) => {
     }
     const name = path === '/' || path === '/job-pocket/' ? 'index.html' : path.replace(/^\/(?:job-pocket\/)?/, '');
     if (req.method !== 'GET' || !Object.hasOwn(files, name)) throw new ApiError(404, '页面不存在。');
-    const body = await readFile(new URL('./docs/' + name, import.meta.url));
+    // The Node-hosted frontend can call this API on the same HTTPS origin.
+    const body = name === 'config.mjs'
+      ? 'export const API_BASE = window.location.origin;'
+      : await readFile(new URL('./docs/' + name, import.meta.url));
     res.writeHead(200, {'Content-Type':files[name], 'X-Content-Type-Options':'nosniff','Cache-Control':'no-cache'});
     res.end(body);
   } catch (error) {

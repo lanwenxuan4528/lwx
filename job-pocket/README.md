@@ -2,8 +2,6 @@
 
 把招聘截图整理成个人岗位仓库。可以上传单张截图，检查并修改识别结果，添加多个分类，再在仓库里筛选和比较。没有 AI 配置时，也可以上传截图并手动填写，或者直接录入纯文字岗位。
 
-在 `lwx` 仓库中，先进入 `job-pocket/` 目录再运行下方本地命令。部署后台时，以 `job-pocket` 作为 Render 的 **Root Directory**。下文的 Git 和 Pages 发布示例适用于独立仓库。如果希望与 Unlive 共用站点，应先检查现有 Pages 发布配置，再将本项目的 `docs/` 内容发布到站点的 `job-pocket/` 子路径，保留 Unlive 的现有发布入口。
-
 ## 1. 在电脑上启动
 
 项目使用原生 HTML、CSS、JavaScript 模块和 IndexedDB。后台使用 Node.js 24 自带的 HTTP、环境变量和 Fetch 接口。前后端均无需安装 npm 依赖。
@@ -62,6 +60,13 @@ git push -u origin main
 提交前检查列表，实际 `.env`、招聘截图和导出的用户备份均应留在仓库之外。可先使用 [GitHub 的本地代码上传说明](https://docs.github.com/en/repositories/creating-and-managing-repositories/adding-locally-hosted-code-to-github)。
 
 ## 4. 部署网页与后台
+
+**直接用一个 Render 链接在手机上识别**
+
+1. 登录 Render，新建 **Web Service**，选择 GitHub 仓库 lwx 和 job-pocket 分支。**Root Directory** 填 job-pocket，运行环境选 **Docker**，Dockerfile 使用根目录默认值。
+2. 在 Render 的 **Environment** 添加 OPENAI_API_KEY 和 AI_ACCESS_CODE。前者填你自己的 API 密钥，后者填一段长随机访问码，只有使用识别的人需要知道。同时可将 AI_REQUESTS_PER_MINUTE 设为 3。网页和 API 由同一个服务提供，ALLOWED_ORIGINS 留空即可。
+3. 部署成功后，用手机打开 Render 显示的 HTTPS 链接，选择一张测试截图，输入访问码后点击「开始识别」。核对结果、保存，再打开岗位仓库确认能查看岗位和原图。该操作会消耗 API 用量，Render 托管也可能收费。
+4. 这个链接可独立使用。之后如需 GitHub Pages 前端，再按下面的分离部署方式配置。若与 Unlive 共用 lwx 仓库，应保留已有 Pages 发布配置，由现有发布流程额外输出岗位夹子路径。
 
 **前端 GitHub Pages**
 
