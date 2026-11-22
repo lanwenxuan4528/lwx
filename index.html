@@ -1,0 +1,830 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>未唱之歌 · 声音验证</title>
+<style>
+:root {color-scheme:dark;font:16px/1.55 system-ui,"Microsoft YaHei",sans-serif;background:#10141d;color:#eef2f8}
+* {box-sizing:border-box} body {margin:0} main {max-width:1050px;margin:auto;padding:32px 20px}
+h1,h2,p {margin:0} h1 {font-size:2.3rem} h2 {font-size:1.15rem} .muted,small {color:#b5bfd0}
+.grid {display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:18px;margin:22px 0}
+section {background:#191f2c;border:1px solid #30394b;border-radius:16px;padding:20px}
+label.file {display:block;margin-top:14px} input[type=file] {display:block;max-width:100%;margin:4px 0}
+small {display:block;overflow-wrap:anywhere} small[data-error] {color:#ffada5}
+button {color:inherit;background:#242e42;border:1px solid #4b5970;border-radius:8px;padding:8px 12px;font:inherit;cursor:pointer}
+button:disabled {opacity:.52;cursor:default} button[aria-pressed=true],#play:not(:disabled) {background:#9be8cb;color:#101d1d;border-color:#9be8cb}
+button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid #a5efcf;outline-offset:3px}
+.controls {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0}
+.range {width:100%;accent-color:#a5efcf} .range-label {display:flex;justify-content:space-between;margin-top:10px}
+#venue {position:relative;height:230px;margin:14px 0;border-radius:12px;background:linear-gradient(#283650,#171d2a);border:1px solid #475572;touch-action:none}
+.stage {position:absolute;top:0;left:15%;width:70%;height:18%;text-align:center;padding-top:6px;background:#455578;border-radius:0 0 14px 14px}
+.floor {position:absolute;left:8%;right:8%;top:26%;bottom:8%;border:1px dashed #62728c;border-radius:8px;cursor:crosshair;background:repeating-linear-gradient(to bottom,transparent 0 30px,#a2b0ca18 31px 32px)}
+#listener {position:absolute;transform:translate(-50%,-50%);pointer-events:none;background:#a5efcf;color:#12231d;border-radius:18px;padding:2px 8px;white-space:nowrap;font-size:.82rem}
+#status {min-height:1.55em;color:#b7ebd8;margin-top:10px}
+.transport-panel {margin-top:16px;padding-top:14px;border-top:1px solid #30394b}
+.demo-panel {margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #30394b}
+#demo {background:#9be8cb;color:#101d1d;font-weight:700;margin-top:8px}
+#file-note a {display:inline-block;margin-bottom:4px;color:#9be8cb;font-weight:700}
+@media(max-width:735px){.grid{grid-template-columns:1fr}main{padding:20px 12px}}
+</style>
+</head>
+<body>
+<main>
+<header><h1>未唱之歌</h1><p class="muted">戴上耳机，移动你在场地中的位置。同一位置的空间感会因耳机和听者而异。</p></header>
+<div class="grid">
+<section aria-label="音频与播放">
+<div class="demo-panel" id="demo-panel">
+<h2 id="demo-heading">立即体验</h2>
+<p class="muted">戴耳机试听内置的合成哼唱与伴奏，试试切换座位和原版。</p>
+<button id="demo">▶ 播放内置示例</button>
+</div>
+<div id="local-separation">
+<h2 id="import-heading">导入录音并分离</h2>
+<p class="muted">选择录音后自动分离。最长 60 秒、最大 20 MiB。</p>
+<p class="muted" id="browser-note" hidden>录音在浏览器内处理。首次需要加载模型，建议使用桌面 Chrome 或 Edge。</p>
+<label class="file">上传音频<input id="recording" type="file" accept=".wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.webm"></label>
+<small id="separation-info" role="status"></small>
+</div>
+<p class="muted" id="file-note" hidden><a href="http://127.0.0.1:8765/">打开自动分离页面</a><br>如果打不开，再到项目文件夹双击「双击启动.cmd」。</p>
+<details id="manual">
+<summary>手动导入分轨</summary>
+<p class="muted">导入从同一时间点开始的人声和立体声伴奏。</p>
+<label class="file">人声<input id="voice" type="file" accept=".wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.webm"></label><small id="voice-info"></small>
+<label class="file">立体声伴奏<input id="music" type="file" accept=".wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.webm"></label><small id="music-info"></small>
+<label class="file">原版混音（可选）<input id="original" type="file" accept=".wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.webm"></label><small id="original-info"></small>
+<button id="remove-original" hidden>移除原版</button>
+</details>
+<p id="status" role="status"></p>
+<div class="transport-panel" role="group" aria-labelledby="play-heading">
+<h2 id="play-heading">试听与对比</h2>
+<div class="controls">
+<button id="play" disabled>播放</button><button id="spatial" aria-pressed="true">空间版</button>
+<button id="dry" aria-pressed="false" disabled aria-describedby="compare-note">原版</button><button id="reset">重置</button>
+</div>
+<small id="compare-note">导入对应的原版混音后可切换。</small>
+<label class="range-label" for="seek">播放进度 <output id="clock">0:00 / 0:00</output></label>
+<input class="range" id="seek" type="range" value="0" max="0" min="0" step="0.01" disabled>
+</div>
+</section>
+<section aria-labelledby="venue-title">
+<h2 id="venue-title">拖动我的位置，探索听感</h2>
+<p class="muted">舞台上方固定为正前方。可拖动、点选，或聚焦场地图后用方向键移动。</p>
+<div id="venue" tabindex="0" role="group" aria-label="虚拟场地，可用方向键移动">
+<div class="stage">舞台 · 歌手</div>
+<div class="floor" id="floor"><span id="listener">▲ 我</span></div>
+</div>
+<div class="controls" id="presets">
+<button data-position="front">前排中央</button><button data-position="rear">后排中央</button><button data-position="left">左侧</button><button data-position="right">右侧</button>
+</div>
+<label class="range-label" for="intensity">现场感强度 <output id="strength">65%</output></label>
+<input class="range" id="intensity" type="range" min="0" max="100" value="65">
+<small>混响为程序合成，用于模拟场地听感。</small>
+</section>
+</div>
+</main>
+<script>
+"use strict";
+
+const $ = id => document.getElementById(id);
+const MAX_SECONDS = 60;
+const DEFAULT_INTENSITY = 65;
+const MAX_BYTES = 20 * 1024 * 1024;
+const ALIGN_TOLERANCE = 0.25;
+const slots = {};
+for (const key of ["voice", "music", "original"]) {
+  slots[key] = { buffer: null, loading: false, revision: 0, rms: 0 };
+}
+const presets = {
+  front: { x: 0, z: 2 },
+  rear: { x: 0, z: 11 },
+  left: { x: -4.5, z: 5 },
+  right: { x: 4.5, z: 5 }
+};
+let position = { ...presets.front };
+let context, graph, active;
+let offset = 0;
+let length = 0;
+let canCompare = false;
+let mode = "spatial";
+let intent = 0;
+let seeking = false;
+let separating = false;
+const openedAsFile = location.protocol === "file:";
+const localSeparation = location.protocol === "http:" && location.hostname === "127.0.0.1"
+  && !new URLSearchParams(location.search).has("browser");
+const uploadEnabled = !openedAsFile;
+$("local-separation").hidden = !uploadEnabled;
+$("demo-panel").hidden = uploadEnabled;
+$("manual").hidden = uploadEnabled;
+$("browser-note").hidden = !uploadEnabled || localSeparation;
+$("file-note").hidden = !openedAsFile;
+
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const status = message => { $("status").textContent = message; };
+
+function audioContext() {
+  if (!context) {
+    const AudioEngine = window.AudioContext || window.webkitAudioContext;
+    if (!AudioEngine) throw new Error("当前浏览器不支持 Web Audio，请使用 Chrome 或 Edge。");
+    context = new AudioEngine();
+  }
+  return context;
+}
+
+// 场地图横轴向右为 +X，纵轴向后为 +Z，单位按米估计。
+// 听众固定面向 -Z。几何相对坐标是 (-x, 0, -z)。
+// 输出 X 依本机试听反馈镜像一次，Z 保持不变，以校正实际听到的左右。
+function venueParameters({ x, z }, intensity) {
+  const distance = Math.hypot(x, z);
+  const near = 1.6;
+  const far = clamp((distance - near) / 11, 0, 1);
+  return {
+    x, z: -z,
+    direct: 0.96 - 0.29 * far,
+    cutoff: 17300 - 3200 * far,
+    presence: 2.2 * far,
+    vocalWrap: intensity * 0.48 * (1 - far) ** 2,
+    voiceWet: intensity * (0.26 + 0.49 * far),
+    musicWet: intensity * (0.22 + 0.21 * far),
+    musicSide: intensity * (0.11 + 0.035 * far)
+  };
+}
+
+function ramp(param, value, seconds = 0.045) {
+  param.setTargetAtTime(value, context.currentTime, seconds);
+}
+
+function paintPosition() {
+  $("listener").style.left = (position.x + 6) / 12 * 100 + "%";
+  $("listener").style.top = (position.z - 1.6) / 10.4 * 100 + "%";
+  for (const button of $("presets").querySelectorAll("button")) {
+    const preset = presets[button.dataset.position];
+    button.setAttribute("aria-pressed", preset.x === position.x && preset.z === position.z);
+  }
+  $("venue").setAttribute("aria-label",
+    "虚拟场地，可用方向键移动。横向 " + position.x.toFixed(1) + " 米，距舞台 " + position.z.toFixed(1) + " 米");
+}
+
+function updateVenue() {
+  paintPosition();
+  const strength = +$("intensity").value;
+  $("strength").value = strength + "%";
+  if (!graph) return;
+  const p = venueParameters(position, strength / 100);
+  ramp(graph.pan.positionX, p.x);
+  ramp(graph.pan.positionZ, p.z);
+  ramp(graph.voiceDirect.gain, p.direct);
+  ramp(graph.filter.frequency, p.cutoff);
+  ramp(graph.presence.gain, p.presence);
+  ramp(graph.wrapSend.gain, p.vocalWrap);
+  ramp(graph.voiceSend.gain, p.voiceWet);
+  ramp(graph.musicSend.gain, p.musicWet);
+  ramp(graph.widthLeft.gain, p.musicSide);
+  ramp(graph.widthRight.gain, p.musicSide);
+  ramp(graph.crossLeft.gain, -p.musicSide);
+  ramp(graph.crossRight.gain, -p.musicSide);
+}
+
+function move(x, z) {
+  position = { x: clamp(x, -6, 6), z: clamp(z, 1.6, 12) };
+  updateVenue();
+}
+
+function placePointer(event) {
+  const box = $("floor").getBoundingClientRect();
+  move((event.clientX - box.left) / box.width * 12 - 6,
+       (event.clientY - box.top) / box.height * 10.4 + 1.6);
+}
+
+$("floor").onpointerdown = event => {
+  if (event.button !== 0) return;
+  $("floor").setPointerCapture(event.pointerId);
+  placePointer(event);
+};
+$("floor").onpointermove = event => {
+  if ($("floor").hasPointerCapture(event.pointerId)) placePointer(event);
+};
+$("venue").onkeydown = event => {
+  const axis = { ArrowLeft: [-0.5, 0], ArrowRight: [0.5, 0], ArrowUp: [0, -0.5], ArrowDown: [0, 0.5] }[event.key];
+  if (!axis) return;
+  event.preventDefault();
+  move(position.x + axis[0], position.z + axis[1]);
+};
+$("presets").onclick = event => {
+  const preset = presets[event.target.dataset.position];
+  if (preset) move(preset.x, preset.z);
+};
+$("intensity").oninput = updateVenue;
+
+function makeImpulse(ctx) {
+  const ir = ctx.createBuffer(2, Math.floor(ctx.sampleRate * 2.4), ctx.sampleRate);
+  const reflections = [
+    [[0.023, 0.31], [0.043, 0.24], [0.077, 0.18], [0.111, 0.11]],
+    [[0.031, 0.31], [0.056, 0.24], [0.088, 0.18], [0.128, 0.11]]
+  ];
+  let seed = 12345;
+  for (let channel = 0; channel < 2; channel++) {
+    const data = ir.getChannelData(channel);
+    const onset = Math.floor(ctx.sampleRate * (channel ? 0.063 : 0.051));
+    let smooth = 0;
+    let energy = 0;
+    for (let i = onset; i < data.length; i++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      smooth = 0.55 * smooth + 0.45 * (seed / 2147483648 - 1);
+      const elapsed = (i - onset) / ctx.sampleRate;
+      data[i] = smooth * Math.min(elapsed / 0.06, 1) * Math.exp(-elapsed * 3.1);
+      energy += data[i] ** 2;
+    }
+    const tailScale = 0.48 / Math.sqrt(Math.max(energy, 1e-9));
+    for (let i = onset; i < data.length; i++) data[i] *= tailScale;
+    for (const [seconds, gain] of reflections[channel]) {
+      const tap = Math.floor(ctx.sampleRate * seconds);
+      data[tap] += gain * 0.7;
+      data[tap + 1] += gain * 0.3;
+    }
+  }
+  return ir;
+}
+
+function makeVocalReflections(ctx) {
+  const ir = ctx.createBuffer(2, Math.ceil(ctx.sampleRate * 0.11), ctx.sampleRate);
+  const sides = [
+    [[0.013, 0.60], [0.037, -0.27], [0.068, 0.18]],
+    [[0.019, 0.60], [0.030, 0.27], [0.077, -0.18]]
+  ];
+  sides.forEach((taps, channel) => {
+    const samples = ir.getChannelData(channel);
+    for (const [seconds, amplitude] of taps) {
+      const frame = Math.round(seconds * ctx.sampleRate);
+      samples[frame] = 0.7 * amplitude;
+      samples[frame + 1] = 0.3 * amplitude;
+    }
+  });
+  return ir;
+}
+
+function buildGraph(ctx) {
+  const gain = value => {
+    const node = ctx.createGain();
+    node.gain.value = value;
+    return node;
+  };
+  const voiceInput = gain(1);
+  // 按 Web Audio 的 speakers 规则把立体声平均折为单声道。
+  voiceInput.channelCount = 1;
+  voiceInput.channelCountMode = "explicit";
+  const filter = ctx.createBiquadFilter();
+  filter.type = "lowpass";
+  const presence = ctx.createBiquadFilter();
+  presence.type = "peaking";
+  presence.frequency.value = 2750;
+  presence.Q.value = 0.8;
+  const pan = ctx.createPanner();
+  pan.panningModel = "HRTF";
+  pan.distanceModel = "inverse";
+  pan.rolloffFactor = 0; // 距离增益只由 voiceDirect 控制。
+  const voiceDirect = gain(0.9);
+  const voiceSend = gain(0);
+  const wrapSend = gain(0);
+  const wrapRoom = ctx.createConvolver();
+  wrapRoom.normalize = false;
+  wrapRoom.buffer = makeVocalReflections(ctx);
+  const wrapTone = ctx.createBiquadFilter();
+  wrapTone.type = "lowpass";
+  wrapTone.frequency.value = 4800;
+  const musicInput = gain(1);
+  const musicSend = gain(0);
+  const room = ctx.createConvolver();
+  const ir = makeImpulse(ctx);
+  // 反射声与尾声已分别定标，禁用浏览器二次归一化。
+  room.normalize = false;
+  room.buffer = ir;
+  const roomTone = ctx.createBiquadFilter();
+  roomTone.type = "lowpass";
+  roomTone.frequency.value = 6200;
+  const split = ctx.createChannelSplitter(2);
+  const merge = ctx.createChannelMerger(2);
+  const widthLeft = gain(0), widthRight = gain(0);
+  const crossLeft = gain(0), crossRight = gain(0);
+  const spatial = gain(1);
+  const original = gain(0);
+  const transport = gain(0);
+  const headroom = gain(0.58);
+  const compressor = ctx.createDynamicsCompressor();
+  compressor.threshold.value = -7;
+  compressor.knee.value = 8;
+  compressor.ratio.value = 10;
+  compressor.attack.value = 0.003;
+  compressor.release.value = 0.15;
+
+  voiceInput.connect(filter).connect(presence).connect(pan).connect(voiceDirect).connect(spatial);
+  voiceInput.connect(voiceSend).connect(room);
+  voiceInput.connect(wrapSend).connect(wrapRoom).connect(wrapTone).connect(spatial);
+  musicInput.connect(spatial);
+  // 只提高伴奏的左右差分。中央成分与原来的干声保持一致。
+  musicInput.connect(split);
+  split.connect(widthLeft, 0).connect(merge, 0, 0);
+  split.connect(widthRight, 1).connect(merge, 0, 1);
+  split.connect(crossLeft, 1).connect(merge, 0, 0);
+  split.connect(crossRight, 0).connect(merge, 0, 1);
+  merge.connect(spatial);
+  musicInput.connect(musicSend).connect(room);
+  room.connect(roomTone).connect(spatial);
+  spatial.connect(transport);
+  original.connect(transport);
+  transport.connect(headroom).connect(compressor).connect(ctx.destination);
+  return { voiceInput, filter, presence, pan, voiceDirect, voiceSend, wrapSend, musicInput, musicSend,
+           widthLeft, widthRight, crossLeft, crossRight, spatial, original, transport, compressor };
+}
+
+function measuredRms(buffer, count = buffer.numberOfChannels) {
+  const channels = Array.from({ length: count }, (_, i) => buffer.getChannelData(i));
+  const stride = Math.max(1, Math.floor(buffer.length / 40000));
+  let energy = 0;
+  let n = 0;
+  for (let frame = 0; frame < buffer.length; frame += stride) {
+    for (const channel of channels) {
+      energy += channel[frame] ** 2;
+      n++;
+    }
+  }
+  return Math.sqrt(energy / Math.max(n, 1));
+}
+
+function setMode(next, immediate = false) {
+  mode = next === "original" && canCompare ? next : "spatial";
+  $("spatial").setAttribute("aria-pressed", mode === "spatial");
+  $("dry").setAttribute("aria-pressed", mode === "original");
+  if (!graph) return;
+  const estimate = Math.hypot(slots.voice.rms * 0.82, slots.music.rms);
+  const reference = slots.original.rms;
+  // 粗略匹配响度，限制补偿幅度。两套总线仅在短交叉淡化窗口内同时打开。
+  const correction = reference > 0.001 ? clamp(estimate / reference, 0.65, 1.4) : 1;
+  const spatialGain = mode === "spatial" ? 1 : 0;
+  const originalGain = mode === "original" ? correction : 0;
+  if (immediate) {
+    for (const [param, value] of [[graph.spatial.gain, spatialGain], [graph.original.gain, originalGain]]) {
+      param.cancelScheduledValues(context.currentTime);
+      param.value = value;
+    }
+  } else {
+    ramp(graph.spatial.gain, spatialGain, 0.014);
+    ramp(graph.original.gain, originalGain, 0.014);
+  }
+}
+
+function positionNow() {
+  return active ? clamp(active.offset + Math.max(0, context.currentTime - active.at), 0, length) : offset;
+}
+
+function stopSources() {
+  if (!active) return;
+  const previous = active;
+  active = null;
+  // 旧播放图整体淡出，新图在其停止之后开始，避免快速操作叠播。
+  const now = context.currentTime;
+  const end = now + 0.012;
+  const gate = previous.graph.transport.gain;
+  gate.cancelScheduledValues(now);
+  gate.setValueAtTime(gate.value, now);
+  gate.linearRampToValueAtTime(0, end);
+  previous.sources.forEach(source => source.stop(end));
+  setTimeout(() => previous.graph.compressor.disconnect(), 35);
+  graph = null;
+}
+
+function pause() {
+  intent++;
+  seeking = false;
+  offset = positionNow();
+  stopSources();
+  updateTransport();
+}
+
+function begin(atOffset) {
+  const ctx = context;
+  graph = buildGraph(ctx);
+  updateVenue();
+  setMode(mode, true);
+  const at = ctx.currentTime + 0.025;
+  const nodes = [
+    [slots.voice.buffer, graph.voiceInput],
+    [slots.music.buffer, graph.musicInput]
+  ];
+  if (canCompare) nodes.push([slots.original.buffer, graph.original]);
+  const duration = length - atOffset;
+  const sources = nodes.map(([buffer, target]) => {
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(target);
+    source.start(at, atOffset, duration);
+    return source;
+  });
+  const state = { at, offset: atOffset, sources, graph };
+  active = state;
+  graph.transport.gain.setValueAtTime(0, at);
+  graph.transport.gain.linearRampToValueAtTime(1, at + 0.02);
+  sources[0].onended = () => {
+    if (active !== state) return;
+    offset = length;
+    stopSources();
+    status("试听结束。");
+    updateTransport();
+  };
+  updateTransport();
+}
+
+async function play() {
+  if (!length) return;
+  const request = ++intent;
+  try {
+    const ctx = audioContext();
+    // 由点击事件解锁音频。过期的 resume 请求不得启动新音源。
+    await ctx.resume();
+    if (request !== intent || !length) return;
+    if (ctx.state !== "running") throw new Error("浏览器暂未允许自动播放，请点击「播放」。");
+    begin(offset >= length ? 0 : offset);
+    status("正在试听。");
+  } catch (error) {
+    if (request !== intent) return;
+    status(error.message || "无法启动音频。");
+    updateTransport();
+  }
+}
+
+function timeLabel(seconds) {
+  const n = Math.floor(seconds);
+  return Math.floor(n / 60) + ":" + String(n % 60).padStart(2, "0");
+}
+
+function updateTransport() {
+  $("play").textContent = active ? "暂停" : "播放";
+  if (seeking) return;
+  const position = positionNow();
+  $("seek").value = position;
+  $("clock").value = timeLabel(position) + " / " + timeLabel(length);
+}
+
+function refreshFiles() {
+  const loading = separating || Object.values(slots).some(slot => slot.loading);
+  const voice = slots.voice.buffer;
+  const music = slots.music.buffer;
+  const original = slots.original.buffer;
+  const aligned = voice && music && Math.abs(voice.duration - music.duration) <= ALIGN_TOLERANCE;
+  const common = aligned ? Math.min(voice.duration, music.duration) : 0;
+  canCompare = Boolean(original && common && Math.abs(voice.duration - original.duration) <= ALIGN_TOLERANCE
+    && Math.abs(music.duration - original.duration) <= ALIGN_TOLERANCE);
+  length = loading ? 0 : (canCompare ? Math.min(common, original.duration) : common);
+  $("play").disabled = $("seek").disabled = !length;
+  $("seek").max = length;
+  $("dry").disabled = !length || !canCompare;
+  $("remove-original").hidden = !original && !slots.original.loading && !$("original").value;
+  $("compare-note").textContent = !original ? "导入对应的原版混音后可切换。"
+    : !aligned ? "请先导入时间对应的人声和伴奏。"
+    : !canCompare ? "原版与分轨时长相差超过 0.25 秒，无法对比。"
+    : "两种版本共享播放进度，切换时会短暂淡化。";
+  setMode(mode);
+  updateTransport();
+  if (separating) status("");
+  else if (loading) status("正在解码文件…");
+  else if (voice && music && !aligned) status("人声和伴奏时长相差超过 0.25 秒，请使用时间对应的分轨。");
+  else if (length) status(uploadEnabled ? "音频已就绪。可拖动右侧场地图上的位置。" : "文件已就绪，点击播放。等长文件仍需确认起点一致。");
+  else status(uploadEnabled ? "" : "可直接播放示例，或手动导入分轨。");
+}
+
+// 阶段二取得已解码且对齐的分轨后，可经此边界送入同一播放流程。
+function acceptTrack(key, buffer) {
+  if (buffer.duration > MAX_SECONDS) throw new Error("超过 60 秒，请先裁剪。");
+  if (buffer.duration < 0.1) throw new Error("音频不足 0.1 秒。");
+  if (key === "music" && buffer.numberOfChannels !== 2) throw new Error("伴奏必须为双声道立体声。");
+  if (buffer.numberOfChannels < 1 || buffer.numberOfChannels > 2) throw new Error("只支持单声道或双声道文件。");
+  slots[key].rms = measuredRms(buffer);
+  slots[key].buffer = buffer;
+}
+
+// 原创无词哼唱与伴奏，由简短的旋律及合成音色构成，无需下载素材。
+function makeDemo(ctx) {
+  const rate = ctx.sampleRate;
+  const frames = rate * 12;
+  const voice = ctx.createBuffer(1, frames, rate);
+  const music = ctx.createBuffer(2, frames, rate);
+  const original = ctx.createBuffer(2, frames, rate);
+  const melody = [64, 67, 69, 72, 71, 67, 64, 62, 64, 69, 67, 64];
+  const chords = [[48, 55, 60], [45, 52, 57], [53, 60, 64], [55, 62, 67]];
+  const v = voice.getChannelData(0);
+  const channels = [music.getChannelData(0), music.getChannelData(1)];
+  const mix = [original.getChannelData(0), original.getChannelData(1)];
+  const frequency = note => 440 * 2 ** ((note - 69) / 12);
+  const tau = 2 * Math.PI;
+  let phase = 0;
+  for (let i = 0; i < frames; i++) {
+    const t = i / rate;
+    const local = t % 1;
+    const env = clamp(Math.min((local - .025) / .12, (.96 - local) / .19), 0, 1);
+    phase += tau * frequency(melody[Math.floor(t)]) * (1 + .004 * Math.sin(tau * 5.1 * t)) / rate;
+    v[i] = .21 * env * (Math.sin(phase) + .29 * Math.sin(2 * phase) + .15 * Math.sin(3 * phase) + .09 * Math.sin(5 * phase));
+    const chord = chords[Math.floor(t / 3)];
+    const chordTime = t % 3;
+    const bed = clamp(Math.min(chordTime / .12, (3 - chordTime) / .25), 0, 1);
+    const pulse = t % .5;
+    const bass = .07 * Math.sin(tau * frequency(chord[0] - 12) * pulse)
+      * Math.min(pulse / .025, 1) * Math.exp(-pulse * 8);
+    for (let channel = 0; channel < 2; channel++) {
+      const harmonic = frequency(chord[channel + 1]);
+      const arpeggio = frequency(chord[(Math.floor(t * 4) + channel) % 3] + 12);
+      const pick = t % .25;
+      const pluck = .056 * Math.sin(tau * arpeggio * pick)
+        * Math.min(pick / .009, 1) * Math.exp(-pick * (channel ? 12 : 16));
+      channels[channel][i] = bass + bed * .052 * Math.sin(tau * harmonic * chordTime) + pluck;
+      mix[channel][i] = v[i] + channels[channel][i];
+    }
+  }
+  return [voice, music, original];
+}
+
+$("demo").onclick = () => {
+  if (separating) return;
+  pause();
+  try {
+    const buffers = makeDemo(audioContext());
+    ["voice", "music", "original"].forEach((key, i) => {
+      slots[key].revision++;
+      slots[key].loading = false;
+      acceptTrack(key, buffers[i]);
+      $(key).value = "";
+      const info = $(key + "-info");
+      delete info.dataset.error;
+      info.textContent = "内置示例 · 12 秒";
+    });
+    offset = 0;
+    mode = "spatial";
+    refreshFiles();
+    play();
+  } catch (error) {
+    status("无法加载示例 · " + error.message);
+  }
+};
+
+async function importTrack(key, file) {
+  pause();
+  offset = 0;
+  const slot = slots[key];
+  const revision = ++slot.revision;
+  slot.buffer = null;
+  slot.rms = 0;
+  slot.loading = Boolean(file);
+  const info = $(key + "-info");
+  delete info.dataset.error;
+  info.textContent = file ? "正在读取 " + file.name : "";
+  refreshFiles();
+  if (!file) return;
+  try {
+    if (!/\.(wav|mp3|flac|m4a|aac|ogg|opus|webm)$/i.test(file.name)) throw new Error("不支持该扩展名，请选择 WAV 或 MP3 等音频。");
+    if (!file.size) throw new Error("文件为空。");
+    if (file.size > MAX_BYTES) throw new Error("文件超过 20 MB。");
+    const ctx = audioContext();
+    let buffer;
+    try {
+      buffer = await ctx.decodeAudioData(await file.arrayBuffer());
+    } catch {
+      throw new Error("浏览器无法解码该文件。请确认文件完整，或转为 WAV/MP3。");
+    }
+    if (revision !== slot.revision) return;
+    acceptTrack(key, buffer);
+    info.textContent = file.name + " · " + buffer.duration.toFixed(2) + " 秒 · " + buffer.numberOfChannels + " 声道";
+  } catch (error) {
+    if (revision !== slot.revision) return;
+    info.dataset.error = "";
+    info.textContent = error.message;
+    $(key).value = "";
+  } finally {
+    if (revision === slot.revision) {
+      slot.loading = false;
+      refreshFiles();
+    }
+  }
+}
+
+for (const key of Object.keys(slots)) {
+  $(key).onchange = event => {
+    if (event.target.files.length) importTrack(key, event.target.files[0]);
+  };
+}
+
+// 单声道伴奏保留居中的直达声，加入轻量的左右反相差分空间成分。
+// 混为单声道时差分抵消；立体声原录音跳过此处理。
+function widenMono(ctx, stereo) {
+  const out = ctx.createBuffer(2, stereo.length, stereo.sampleRate);
+  const left = stereo.getChannelData(0);
+  const right = stereo.getChannelData(1);
+  const a = out.getChannelData(0);
+  const b = out.getChannelData(1);
+  const short = Math.round(stereo.sampleRate * 0.013);
+  const long = Math.round(stereo.sampleRate * 0.023);
+  for (let i = 0; i < stereo.length; i++) {
+    const center = (left[i] + right[i]) / 2;
+    const early = i >= short ? (left[i - short] + right[i - short]) / 2 : 0;
+    const late = i >= long ? (left[i - long] + right[i - long]) / 2 : 0;
+    const side = 0.12 * (early - late);
+    a[i] = center + side;
+    b[i] = center - side;
+  }
+  return out;
+}
+
+function unpackTracks(data) {
+  const header = new DataView(data).getUint32(0, true);
+  const { lengths, mono } = JSON.parse(new TextDecoder().decode(data.slice(4, 4 + header)));
+  let cursor = 4 + header;
+  const tracks = lengths.map(size => {
+    const item = data.slice(cursor, cursor + size);
+    cursor += size;
+    return item;
+  });
+  if (tracks.length !== 3 || cursor !== data.byteLength) throw new Error("分离结果不完整，请重试。");
+  return { tracks, mono };
+}
+
+function uploadRecording(file, extension, info) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", "/api/separate");
+    request.responseType = "arraybuffer";
+    request.timeout = 720000;
+    request.setRequestHeader("Content-Type", "application/octet-stream");
+    request.setRequestHeader("X-Audio-Extension", extension);
+    request.upload.onload = () => { info.textContent = "处理中 · 首次可能需要下载模型，请保持终端运行。"; };
+    request.onerror = () => reject(new Error("无法连接本地服务。请确认 Python 窗口仍在运行。"));
+    request.ontimeout = () => reject(new Error("等待分离结果超时，请用更短的片段重试。"));
+    request.onload = () => {
+      if (request.status === 200) { resolve(request.response); return; }
+      try {
+        const data = JSON.parse(new TextDecoder().decode(request.response));
+        reject(new Error(data.error || "分离失败，请重试。"));
+      } catch {
+        reject(new Error("本地分离接口不可用，请用更新后的 serve.py 启动。"));
+      }
+    };
+    request.send(file);
+  });
+}
+
+function inferInWorker(left, right, model) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker("./demucs/worker.js");
+    const timeout = setTimeout(() => finish(new Error("分离超时，请试用更短的录音。")), 600000);
+    function finish(error, data) {
+      clearTimeout(timeout);
+      worker.terminate();
+      if (error) reject(error);
+      else resolve(data);
+    }
+    worker.onerror = event => finish(new Error(event.message || "无法运行分离，请试用桌面 Chrome 或 Edge。"));
+    worker.onmessage = ({ data }) => {
+      // 引擎也会发送进度事件。只用最终波形或错误结算任务。
+      if (data.error) finish(new Error(data.error));
+      else if (data.vocals && data.accompaniment) finish(null, data);
+    };
+    worker.postMessage({ left, right, model }, [left.buffer, right.buffer, model]);
+  });
+}
+
+async function separateInBrowser(file, ctx, info) {
+  info.textContent = "正在读取音频…";
+  let original;
+  try {
+    original = await new OfflineAudioContext(2, 1, 44100).decodeAudioData(await file.arrayBuffer());
+  } catch {
+    throw new Error("无法解码音频，请尝试 WAV 或 MP3。");
+  }
+  if (original.duration < .1 || original.duration > MAX_SECONDS) throw new Error("录音必须在 0.1 至 60 秒之间。");
+  if (![1, 2].includes(original.numberOfChannels)) throw new Error("仅支持单声道或立体声录音。");
+  const mono = original.numberOfChannels === 1;
+  info.textContent = "正在加载分离模型，第一次可能需要等待…";
+  const response = await fetch("./demucs/htdemucs.ort.gzipped");
+  if (!response.ok) throw new Error("模型加载失败，请刷新后重试。");
+  const model = await response.arrayBuffer();
+  info.textContent = "正在本机分离人声与伴奏…";
+  const result = await inferInWorker(original.getChannelData(0).slice(), original.getChannelData(mono ? 0 : 1).slice(), model);
+  const tracks = [result.vocals, result.accompaniment].map(channels => {
+    const buffer = ctx.createBuffer(2, original.length, original.sampleRate);
+    channels.forEach((channel, index) => {
+      if (channel.length !== original.length || channel.some(sample => !Number.isFinite(sample))) {
+        throw new Error("分离得到的音频无效。");
+      }
+      buffer.copyToChannel(channel, index);
+    });
+    return buffer;
+  });
+  return { buffers: [...tracks, original], mono };
+}
+
+$("recording").onchange = async () => {
+  if (separating) return;
+  const file = $("recording").files[0];
+  if (!file) return;
+  const info = $("separation-info");
+  if (!uploadEnabled) return;
+  const extension = file.name.match(/\.[^.]+$/)?.[0].toLowerCase();
+  if (!/^(\.wav|\.mp3|\.flac|\.m4a|\.aac|\.ogg|\.opus|\.webm)$/.test(extension) || !file.size || file.size > MAX_BYTES) {
+    info.textContent = "请选择有效的音频文件，文件大小须在 20 MiB 以内。";
+    $("recording").value = "";
+    return;
+  }
+  pause();
+  separating = true;
+  const keys = ["voice", "music", "original"];
+  for (const key of keys) {
+    slots[key].revision++;
+    slots[key].loading = false;
+    $(key).disabled = true;
+  }
+  $("recording").disabled = true;
+  $("demo").disabled = true;
+  refreshFiles();
+  $("remove-original").disabled = true;
+  let completed = false;
+  try {
+    const ctx = audioContext();
+    // 尽早解锁，长时间的模型处理结束后可直接播放。若策略阻止，仍保留手动播放。
+    ctx.resume().catch(() => {});
+    let result;
+    if (localSeparation) {
+      info.textContent = "正在上传到本机…";
+      result = unpackTracks(await uploadRecording(file, extension, info));
+      result.buffers = await Promise.all(result.tracks.map(track => ctx.decodeAudioData(track)));
+    } else {
+      result = await separateInBrowser(file, ctx, info);
+    }
+    const { buffers } = result;
+    if (result.mono) buffers[1] = widenMono(ctx, buffers[1]);
+    keys.forEach((key, i) => {
+      acceptTrack(key, buffers[i]);
+      $(key).value = "";
+      $(key + "-info").textContent = "来自本次录音 · " + buffers[i].duration.toFixed(2) + " 秒";
+      delete $(key + "-info").dataset.error;
+    });
+    offset = 0;
+    setMode("spatial");
+    info.textContent = file.name + (result.mono ? " · 分离完成，伴奏已立体声化。" : " · 分离完成，保留伴奏立体声。");
+    completed = true;
+  } catch (error) {
+    info.textContent = "分离失败 · " + error.message + " 可重新选择文件。";
+    $("recording").value = "";
+  } finally {
+    separating = false;
+    $("recording").disabled = $("remove-original").disabled = false;
+    $("demo").disabled = false;
+    for (const key of keys) $(key).disabled = false;
+    refreshFiles();
+  }
+  if (completed) play();
+};
+$("remove-original").onclick = () => {
+  $("original").value = "";
+  importTrack("original", null);
+};
+$("play").onclick = () => {
+  if (active) { pause(); status("已暂停。"); }
+  else play();
+};
+$("seek").oninput = event => {
+  seeking = true;
+  $("clock").value = timeLabel(Number(event.target.value)) + " / " + timeLabel(length);
+};
+$("seek").onblur = () => {
+  seeking = false;
+  updateTransport();
+};
+$("seek").onchange = event => {
+  const target = Number(event.target.value);
+  const wasPlaying = Boolean(active);
+  pause();
+  offset = target;
+  if (wasPlaying && offset < length) begin(offset);
+  if (wasPlaying && offset >= length) status("已到结尾。");
+  updateTransport();
+};
+$("spatial").onclick = () => setMode("spatial");
+$("dry").onclick = () => setMode("original");
+$("reset").onclick = () => {
+  pause();
+  offset = 0;
+  $("intensity").value = DEFAULT_INTENSITY;
+  setMode("spatial");
+  move(presets.front.x, presets.front.z);
+  updateTransport();
+  if (length) status("已重置位置、强度和进度，保留导入的文件。");
+};
+
+function frame() {
+  if (active) updateTransport();
+  requestAnimationFrame(frame);
+}
+updateVenue();
+refreshFiles();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
