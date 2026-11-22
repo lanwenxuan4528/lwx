@@ -33,6 +33,7 @@ jobs:
           curl --fail --location --retry 3 --max-time 300 "$upstream/models/htdemucs.ort.gzipped" -o site/demucs/htdemucs.ort.gzipped
           test "$(wc -c < site/demucs/htdemucs.ort.gzipped)" -eq 54471499
           gzip -t site/demucs/htdemucs.ort.gzipped
+          split -b 7M -d -a 2 site/demucs/htdemucs.ort.gzipped site/demucs/model-35c8bd5.part
       - uses: actions/upload-pages-artifact@v4
         with:
           path: site
