@@ -41,9 +41,9 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 </div>
 <div id="local-separation">
 <h2 id="import-heading">导入录音并分离</h2>
-<p class="muted">选择录音后自动分离。最长 60 秒、最大 20 MiB。</p>
+<p class="muted">支持 MP3、WAV 和 FLAC，最大 50 MB，建议优先使用 MP3 或 WAV。超过 4 分 30 秒会自动裁掉末尾多余部分。</p>
 <p class="muted" id="browser-note" hidden>录音在浏览器内处理。首次需要加载模型，建议使用桌面 Chrome 或 Edge。</p>
-<label class="file">上传音频<input id="recording" type="file" accept=".wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.webm"></label>
+<label class="file">上传音频<input id="recording" type="file" accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/flac"></label>
 <small id="separation-info" role="status"></small>
 </div>
 <p class="muted" id="file-note" hidden><a href="http://127.0.0.1:8765/">打开自动分离页面</a><br>如果打不开，再到项目文件夹双击「双击启动.cmd」。</p>
@@ -87,9 +87,9 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 "use strict";
 
 const $ = id => document.getElementById(id);
-const MAX_SECONDS = 60;
+const MAX_SECONDS = 270;
 const DEFAULT_INTENSITY = 65;
-const MAX_BYTES = 20 * 1024 * 1024;
+const MAX_BYTES = 50_000_000;
 const ALIGN_TOLERANCE = 0.25;
 const slots = {};
 for (const key of ["voice", "music", "original"]) {
@@ -495,7 +495,7 @@ function refreshFiles() {
 
 // 阶段二取得已解码且对齐的分轨后，可经此边界送入同一播放流程。
 function acceptTrack(key, buffer) {
-  if (buffer.duration > MAX_SECONDS) throw new Error("超过 60 秒，请先裁剪。");
+  if (buffer.length > MAX_SECONDS * buffer.sampleRate) throw new Error("音轨超过当前时长上限。");
   if (buffer.duration < 0.1) throw new Error("音频不足 0.1 秒。");
   if (key === "music" && buffer.numberOfChannels !== 2) throw new Error("伴奏必须为双声道立体声。");
   if (buffer.numberOfChannels < 1 || buffer.numberOfChannels > 2) throw new Error("只支持单声道或双声道文件。");
@@ -582,7 +582,7 @@ async function importTrack(key, file) {
   try {
     if (!/\.(wav|mp3|flac|m4a|aac|ogg|opus|webm)$/i.test(file.name)) throw new Error("不支持该扩展名，请选择 WAV 或 MP3 等音频。");
     if (!file.size) throw new Error("文件为空。");
-    if (file.size > MAX_BYTES) throw new Error("文件超过 20 MB。");
+    if (file.size > MAX_BYTES) throw new Error("文件超过 50 MB。");
     const ctx = audioContext();
     let buffer;
     try {
@@ -670,10 +670,15 @@ function uploadRecording(file, extension, info) {
   });
 }
 
-function inferInWorker(left, right, model) {
+function inferInWorker(left, right, model, info) {
   return new Promise((resolve, reject) => {
-    const worker = new Worker("./demucs/worker.js");
-    const timeout = setTimeout(() => finish(new Error("分离超时，请试用更短的录音。")), 600000);
+    const worker = new Worker("./demucs/worker.js?v=long-audio-1");
+    let timeout;
+    function resetTimeout() {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => finish(new Error("分离超时，请试用更短的录音。")), 600000);
+    }
+    resetTimeout();
     function finish(error, data) {
       clearTimeout(timeout);
       worker.terminate();
@@ -685,6 +690,10 @@ function inferInWorker(left, right, model) {
       // 引擎也会发送进度事件。只用最终波形或错误结算任务。
       if (data.error) finish(new Error(data.error));
       else if (data.vocals && data.accompaniment) finish(null, data);
+      else if (data.total > 0 && Number.isFinite(data.processed)) {
+        resetTimeout();
+        info.textContent = "正在本机分离 · " + Math.floor(100 * data.processed / data.total) + "%";
+      }
     };
     worker.postMessage({ left, right, model }, [left.buffer, right.buffer, model]);
   });
@@ -780,13 +789,21 @@ async function separateInBrowser(file, ctx, info) {
   } catch {
     throw new Error("无法解码音频，请尝试 WAV 或 MP3。");
   }
-  if (original.duration < .1 || original.duration > MAX_SECONDS) throw new Error("录音必须在 0.1 至 60 秒之间。");
+  if (original.duration < .1) throw new Error("音频不足 0.1 秒。");
   if (![1, 2].includes(original.numberOfChannels)) throw new Error("仅支持单声道或立体声录音。");
+  const maxFrames = MAX_SECONDS * original.sampleRate;
+  if (original.length > maxFrames) {
+    const clipped = ctx.createBuffer(original.numberOfChannels, maxFrames, original.sampleRate);
+    for (let channel = 0; channel < original.numberOfChannels; channel++) {
+      clipped.copyToChannel(original.getChannelData(channel).subarray(0, maxFrames), channel);
+    }
+    original = clipped;
+  }
   const mono = original.numberOfChannels === 1;
   info.textContent = "正在加载分离模型，第一次可能需要等待…";
   const model = await loadBrowserModel(info);
   info.textContent = "正在本机分离人声与伴奏…";
-  const result = await inferInWorker(original.getChannelData(0).slice(), original.getChannelData(mono ? 0 : 1).slice(), model);
+  const result = await inferInWorker(original.getChannelData(0).slice(), original.getChannelData(mono ? 0 : 1).slice(), model, info);
   const tracks = [result.vocals, result.accompaniment].map(channels => {
     const buffer = ctx.createBuffer(2, original.length, original.sampleRate);
     channels.forEach((channel, index) => {
@@ -807,8 +824,8 @@ $("recording").onchange = async () => {
   const info = $("separation-info");
   if (!uploadEnabled) return;
   const extension = file.name.match(/\.[^.]+$/)?.[0].toLowerCase();
-  if (!/^(\.wav|\.mp3|\.flac|\.m4a|\.aac|\.ogg|\.opus|\.webm)$/.test(extension) || !file.size || file.size > MAX_BYTES) {
-    info.textContent = "请选择有效的音频文件，文件大小须在 20 MiB 以内。";
+  if (!/^\.(mp3|wav|flac)$/.test(extension) || !file.size || file.size > MAX_BYTES) {
+    info.textContent = "请选择不超过 50 MB 的 MP3、WAV 或 FLAC 文件。";
     $("recording").value = "";
     return;
   }
