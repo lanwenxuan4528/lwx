@@ -25,7 +25,7 @@ jobs:
           set -eu
           mkdir -p site/demucs
           cp index.html site/
-          cp demucs/worker.js site/demucs/
+          cp demucs/worker.js demucs/session-store.js site/demucs/
           upstream=https://raw.githubusercontent.com/bengfarrell/demucs-wasm/35c8bd5b74c56f630082058179cd8f57cb192fb2
           for name in LICENSE demucs_onnx_simd.js demucs_onnx_simd.wasm; do
             curl --fail --location --retry 3 --max-time 300 "$upstream/$name" -o "site/demucs/$name"
@@ -34,6 +34,10 @@ jobs:
           test "$(wc -c < site/demucs/htdemucs.ort.gzipped)" -eq 54471499
           gzip -t site/demucs/htdemucs.ort.gzipped
           split -b 7M -d -a 2 site/demucs/htdemucs.ort.gzipped site/demucs/model-35c8bd5.part
+          lite_model="$(mktemp)"
+          python3 demucs/compact_model.py site/demucs/htdemucs.ort.gzipped "$lite_model"
+          printf '{"bytes":%s}\n' "$(wc -c < "$lite_model")" > site/demucs/lite-m7.json
+          split -b 7M -d -a 2 "$lite_model" site/demucs/model-35c8bd5-m7.part
       - uses: actions/upload-pages-artifact@v4
         with:
           path: site
