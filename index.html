@@ -91,6 +91,7 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 </section>
 </div>
 </main>
+<script src="./demucs/session-store.js"></script>
 <script>
 "use strict";
 
@@ -121,6 +122,27 @@ let seeking = false;
 let separating = false;
 let previewReady = false;
 let previewSession = null;
+const JOB_KEY = "unlive-current-separation";
+let resumableJob = null;
+
+function savedJob() {
+  try { return JSON.parse(sessionStorage.getItem(JOB_KEY)); }
+  catch { return null; }
+}
+
+function rememberJob(patch) {
+  if (!resumableJob) return;
+  Object.assign(resumableJob, patch);
+  try { sessionStorage.setItem(JOB_KEY, JSON.stringify(resumableJob)); }
+  catch { /* The current task can still finish in memory. */ }
+}
+
+window.addEventListener("pagehide", () => rememberJob({
+  ...(length ? { position: positionNow() } : {}),
+  venue: position,
+  intensity: $("intensity").value,
+  mode
+}));
 const openedAsFile = location.protocol === "file:";
 const lightTrial = location.hostname === "127.0.0.1" && new URLSearchParams(location.search).has("lite");
 const localSeparation = location.protocol === "http:" && location.hostname === "127.0.0.1"
@@ -705,10 +727,10 @@ function showSeparationProgress(info, message, percent) {
   if (info.textContent !== message) info.textContent = message;
 }
 
-function inferInWorker(left, right, model, info, onPreview, signal) {
+function inferInWorker(left, right, model, info, onPreview, signal, resumeId) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) { reject(signal.reason); return; }
-    const worker = new Worker("./demucs/worker.js?v=preview-minute-1");
+    const worker = new Worker("./demucs/worker.js?v=resume-1");
     let timeout;
     function resetTimeout() {
       clearTimeout(timeout);
@@ -732,7 +754,8 @@ function inferInWorker(left, right, model, info, onPreview, signal) {
     signal?.addEventListener("abort", abort, { once: true });
     worker.onerror = event => finish(new Error(event.message || "无法运行分离，请试用桌面 Chrome 或 Edge。"));
     let chunk = null;
-    let highWater = 0;
+    let highWater = resumableJob?.total > 0
+      ? Math.min(99, Math.floor(100 * resumableJob.processed / resumableJob.total)) : 0;
     function update(processed, total) {
       highWater = Math.max(highWater, Math.min(99, Math.floor(100 * processed / total)));
       showSeparationProgress(info, "正在分离人声与伴奏 · " + highWater + "%", highWater);
@@ -740,6 +763,9 @@ function inferInWorker(left, right, model, info, onPreview, signal) {
     worker.onmessage = ({ data }) => {
       if (data.error) finish(new Error(data.error));
       else if (data.vocals && data.accompaniment) finish(null, data);
+      else if (data.checkpointUnavailable) {
+        status("浏览器存储空间不足，刷新只能恢复已经保存的进度。");
+      }
       else if (data.preview && onPreview) {
         try { onPreview(data.preview); }
         catch (error) { console.warn("Preview setup failed", error); }
@@ -760,12 +786,16 @@ function inferInWorker(left, right, model, info, onPreview, signal) {
         update(chunk.chunkStart + data.data * (chunk.chunkEnd - chunk.chunkStart), chunk.total);
       } else if (data.total > 0 && Number.isFinite(data.processed)) {
         resetTimeout();
+        if (data.saved) rememberJob({
+          processed: Math.max(resumableJob?.processed || 0, data.processed),
+          total: data.total
+        });
         update(data.processed, data.total);
       }
     };
     const transfer = [left.buffer, right.buffer];
     if (model) transfer.push(model);
-    worker.postMessage({ left, right, model, preview: Boolean(onPreview) }, transfer);
+    worker.postMessage({ left, right, model, preview: Boolean(onPreview), resumeId }, transfer);
   });
 }
 
@@ -864,7 +894,7 @@ function makeSeparatedBuffers(result, ctx, frames, sampleRate) {
   });
 }
 
-async function separateInBrowser(file, ctx, info, onPreview, signal) {
+async function separateInBrowser(file, ctx, info, onPreview, signal, resumeId) {
   info.textContent = "正在读取音频…";
   let original;
   try {
@@ -905,7 +935,7 @@ async function separateInBrowser(file, ctx, info, onPreview, signal) {
     if (mono) tracks[1] = widenMono(ctx, tracks[1]);
     onPreview([...tracks, reference]);
   });
-  const result = await inferInWorker(original.getChannelData(0).slice(), original.getChannelData(mono ? 0 : 1).slice(), model, info, preview, signal);
+  const result = await inferInWorker(original.getChannelData(0).slice(), original.getChannelData(mono ? 0 : 1).slice(), model, info, preview, signal, resumeId);
   showSeparationProgress(info, "正在准备试听音轨…", 99);
   const tracks = makeSeparatedBuffers(result, ctx, original.length, original.sampleRate);
   return { buffers: [...tracks, original], mono };
@@ -920,6 +950,7 @@ function showPreviewChoice(show) {
 $("continue-full").onclick = () => {
   if (!previewSession) return;
   previewSession.accepted = true;
+  rememberJob({ accepted: true });
   showPreviewChoice(false);
   status("整首准备好后会从 1:00 继续播放。");
   previewSession.choose(true);
@@ -941,9 +972,8 @@ $("change-preview").onclick = () => {
   $("recording").click();
 };
 
-$("recording").onchange = async () => {
+async function processRecording(file, restore = null) {
   if (separating) return;
-  const file = $("recording").files[0];
   if (!file) return;
   const info = $("separation-info");
   if (!uploadEnabled) return;
@@ -979,6 +1009,32 @@ $("recording").onchange = async () => {
   }
   const startedAt = performance.now();
   try {
+    if (usePreview && !lightTrial && typeof separationStore !== "undefined") {
+      if (restore) {
+        resumableJob = restore;
+        if (Number.isFinite(restore.venue?.x) && Number.isFinite(restore.venue?.z)) {
+          $("intensity").value = String(clamp(Number(restore.intensity), 0, 100));
+          move(restore.venue.x, restore.venue.z);
+        }
+        if (restore.accepted) {
+          previewSession.accepted = true;
+          previewSession.choose(true);
+        }
+      } else {
+        const previous = savedJob();
+        resumableJob = null;
+        try {
+          sessionStorage.removeItem(JOB_KEY);
+          if (previous?.id) await separationStore.remove(previous.id);
+          const id = Date.now() + "-" + crypto.randomUUID();
+          await separationStore.put([id, "source"], file);
+          resumableJob = { id, position: 0 };
+          rememberJob({});
+        } catch {
+          // Private browsing or a storage quota must not stop separation.
+        }
+      }
+    }
     const ctx = audioContext();
     // 尽早解锁，长时间的模型处理结束后可直接播放。若策略阻止，仍保留手动播放。
     ctx.resume().catch(() => {});
@@ -988,14 +1044,19 @@ $("recording").onchange = async () => {
       result = unpackTracks(await uploadRecording(file, extension, info));
       result.buffers = await Promise.all(result.tracks.map(track => ctx.decodeAudioData(track)));
     } else {
-      result = await separateInBrowser(file, ctx, info, usePreview ? buffers => {
+      result = await separateInBrowser(file, ctx, info, usePreview && !restore?.ready && !restore?.accepted ? buffers => {
         keys.forEach((key, i) => acceptTrack(key, buffers[i]));
         previewReady = true;
-        offset = 0;
+        offset = Math.min(restore?.position ?? 0, PREVIEW_SECONDS);
         setMode("spatial");
         refreshFiles();
-        status("前 1 分钟已就绪，点击「播放」试听。剩余音频仍在分离。");
-      } : null, controller?.signal);
+        if (offset >= PREVIEW_SECONDS) {
+          status("是否等待整首效果完成");
+          showPreviewChoice(true);
+        } else {
+          status("前 1 分钟已就绪，点击「播放」试听。剩余音频仍在分离。");
+        }
+      } : null, controller?.signal, resumableJob?.id);
     }
     if (previewReady) {
       if (!previewSession.accepted) {
@@ -1014,7 +1075,7 @@ $("recording").onchange = async () => {
       delete $(key + "-info").dataset.error;
     });
     if (!previewReady) {
-      offset = 0;
+      offset = Math.min(restore?.position ?? (restore?.accepted ? PREVIEW_SECONDS : 0), result.buffers[0].duration);
       setMode("spatial");
     }
     info.textContent = file.name + (result.mono ? " · 分离完成，伴奏已立体声化。" : " · 分离完成，保留伴奏立体声。");
@@ -1023,9 +1084,15 @@ $("recording").onchange = async () => {
     }
     if (!localSeparation) $("separation-meter").value = 100;
     completed = true;
+    if (restore?.mode === "original") mode = "original";
+    rememberJob({ ready: true, position: offset });
   } catch (error) {
     $("separation-meter").hidden = true;
     if (controller?.signal.aborted) {
+      const id = resumableJob?.id;
+      resumableJob = null;
+      try { sessionStorage.removeItem(JOB_KEY); } catch {}
+      if (id) separationStore.remove(id).catch(() => {});
       pause();
       offset = 0;
       for (const key of keys) slots[key].buffer = null;
@@ -1044,8 +1111,10 @@ $("recording").onchange = async () => {
     for (const key of keys) $(key).disabled = false;
     refreshFiles();
   }
-  if (completed) play();
-};
+  if (completed && !restore) play();
+}
+
+$("recording").onchange = () => processRecording($("recording").files[0]);
 $("remove-original").onclick = () => {
   $("original").value = "";
   importTrack("original", null);
@@ -1095,6 +1164,21 @@ function frame() {
 updateVenue();
 refreshFiles();
 requestAnimationFrame(frame);
+
+if (uploadEnabled && !localSeparation && !lightTrial && typeof separationStore !== "undefined") {
+  separationStore.cleanOld().catch(() => {});
+  const restore = savedJob();
+  if (typeof restore?.id === "string") {
+    $("separation-info").textContent = "正在恢复上次处理进度…";
+    separationStore.get([restore.id, "source"]).then(file => {
+      if (separating) return;
+      if (file) processRecording(file, restore);
+      else $("separation-info").textContent = "找不到已保存的音频，请重新选择文件。";
+    }).catch(() => {
+      if (!separating) $("separation-info").textContent = "无法读取已保存的进度，请重新选择文件。";
+    });
+  }
+}
 </script>
 </body>
 </html>
