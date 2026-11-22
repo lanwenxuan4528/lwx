@@ -3,8 +3,9 @@
 
 const CHUNK = 30 * 44100;
 const OVERLAP = 44100;
+const PREVIEW_FRAMES = 60 * 44100;
 
-self.onmessage = async ({ data: { left, right, model } }) => {
+self.onmessage = async ({ data: { left, right, model, preview } }) => {
   try {
     if (!model) model = await downloadModel();
     self.postMessage({ initializing: true });
@@ -27,6 +28,7 @@ self.onmessage = async ({ data: { left, right, model } }) => {
       const stereo = () => [new Float32Array(left.length), new Float32Array(left.length)];
       const vocals = stereo();
       const accompaniment = stereo();
+      let previewSent = false;
       for (let start = 0; ; start += CHUNK - OVERLAP) {
         const end = Math.min(start + CHUNK, left.length);
         self.postMessage({ chunkStart: start, chunkEnd: end, total: left.length });
@@ -44,6 +46,17 @@ self.onmessage = async ({ data: { left, right, model } }) => {
           const musicR = heap[drumsR + i] + heap[bassR + i] + heap[otherR + i];
           accompaniment[0][index] += (musicL - accompaniment[0][index]) * mix;
           accompaniment[1][index] += (musicR - accompaniment[1][index]) * mix;
+        }
+        const stableFrames = end < left.length ? end - OVERLAP : end;
+        if (preview && !previewSent && left.length > PREVIEW_FRAMES && stableFrames >= PREVIEW_FRAMES) {
+          // Wait until the prefix can no longer change in a later overlap.
+          previewSent = true;
+          const stableEnd = PREVIEW_FRAMES;
+          const clip = {
+            vocals: vocals.map(channel => channel.slice(0, stableEnd)),
+            accompaniment: accompaniment.map(channel => channel.slice(0, stableEnd))
+          };
+          self.postMessage({ preview: clip }, [...clip.vocals, ...clip.accompaniment].map(channel => channel.buffer));
         }
         self.postMessage({ processed: end, total: left.length });
         if (end === left.length) break;
