@@ -1,6 +1,9 @@
 /* WebAssembly API from bengfarrell/demucs-wasm. See LICENSE. */
 "use strict";
 
+const CHUNK = 30 * 44100;
+const OVERLAP = 44100;
+
 self.onmessage = async ({ data: { left, right, model } }) => {
   try {
     importScripts("./demucs_onnx_simd.js");
@@ -16,20 +19,31 @@ self.onmessage = async ({ data: { left, right, model } }) => {
       const modelPointer = allocate(model.byteLength);
       runtime.HEAPU8.set(new Uint8Array(model), modelPointer);
       runtime._modelInit(modelPointer, model.byteLength);
-      const inputs = [left, right].map(channel => {
-        const pointer = allocate(channel.byteLength);
-        runtime.HEAPF32.set(channel, pointer / 4);
-        return pointer;
-      });
-      const outputs = Array.from({ length: 8 }, () => allocate(left.byteLength));
-      runtime._modelDemixSegment(...inputs, left.length, ...outputs, 0, 0, 0, 0, false, 1, 0);
-      const waveforms = outputs.map(pointer => runtime.HEAPF32.slice(pointer / 4, pointer / 4 + left.length));
-      const vocals = waveforms.slice(6);
-      const accompaniment = waveforms.slice(0, 2);
-      for (let channel = 0; channel < 2; channel++) {
-        for (let i = 0; i < left.length; i++) {
-          accompaniment[channel][i] += waveforms[channel + 2][i] + waveforms[channel + 4][i];
+      const sampleBytes = Math.min(CHUNK, left.length) * Float32Array.BYTES_PER_ELEMENT;
+      const inputs = Array.from({ length: 2 }, () => allocate(sampleBytes));
+      const outputs = Array.from({ length: 8 }, () => allocate(sampleBytes));
+      const stereo = () => [new Float32Array(left.length), new Float32Array(left.length)];
+      const vocals = stereo();
+      const accompaniment = stereo();
+      for (let start = 0; ; start += CHUNK - OVERLAP) {
+        const end = Math.min(start + CHUNK, left.length);
+        runtime.HEAPF32.set(left.subarray(start, end), inputs[0] / 4);
+        runtime.HEAPF32.set(right.subarray(start, end), inputs[1] / 4);
+        runtime._modelDemixSegment(...inputs, end - start, ...outputs, 0, 0, 0, 0, false, 1, 0);
+        const heap = runtime.HEAPF32;
+        const [drumsL, drumsR, bassL, bassR, otherL, otherR, vocalL, vocalR] = outputs.map(pointer => pointer / 4);
+        for (let i = 0; i < end - start; i++) {
+          const index = start + i;
+          const mix = start ? Math.min(1, i / (OVERLAP - 1)) : 1;
+          vocals[0][index] += (heap[vocalL + i] - vocals[0][index]) * mix;
+          vocals[1][index] += (heap[vocalR + i] - vocals[1][index]) * mix;
+          const musicL = heap[drumsL + i] + heap[bassL + i] + heap[otherL + i];
+          const musicR = heap[drumsR + i] + heap[bassR + i] + heap[otherR + i];
+          accompaniment[0][index] += (musicL - accompaniment[0][index]) * mix;
+          accompaniment[1][index] += (musicR - accompaniment[1][index]) * mix;
         }
+        self.postMessage({ processed: end, total: left.length });
+        if (end === left.length) break;
       }
       self.postMessage({ vocals, accompaniment }, [...vocals, ...accompaniment].map(channel => channel.buffer));
     } finally {
