@@ -1009,6 +1009,9 @@ async function processRecording(file, restore = null) {
   }
   const startedAt = performance.now();
   try {
+    const ctx = audioContext();
+    // Unlock during file selection, before the asynchronous checkpoint writes.
+    if (!restore) ctx.resume().catch(() => {});
     if (usePreview && !lightTrial && typeof separationStore !== "undefined") {
       if (restore) {
         resumableJob = restore;
@@ -1035,9 +1038,6 @@ async function processRecording(file, restore = null) {
         }
       }
     }
-    const ctx = audioContext();
-    // 尽早解锁，长时间的模型处理结束后可直接播放。若策略阻止，仍保留手动播放。
-    ctx.resume().catch(() => {});
     let result;
     if (localSeparation) {
       info.textContent = "正在上传到本机…";
