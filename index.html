@@ -27,6 +27,8 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 #demo {background:#9be8cb;color:#101d1d;font-weight:700;margin-top:8px}
 #file-note a {display:inline-block;margin-bottom:4px;color:#9be8cb;font-weight:700}
 @media(max-width:735px){.grid{grid-template-columns:1fr}main{padding:20px 12px}}
+.separation-meter {width:100%;height:12px;margin-top:8px;accent-color:#a5efcf}
+.separation-meter[hidden] {display:none}
 </style>
 </head>
 <body>
@@ -45,6 +47,7 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 <p class="muted" id="browser-note" hidden>录音在浏览器内处理。首次需要加载模型，建议使用桌面 Chrome 或 Edge。</p>
 <label class="file">上传音频<input id="recording" type="file" accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/flac"></label>
 <small id="separation-info" role="status"></small>
+<progress id="separation-meter" class="separation-meter" max="100" aria-label="模型加载和音频分离进度" hidden></progress>
 </div>
 <p class="muted" id="file-note" hidden><a href="http://127.0.0.1:8765/">打开自动分离页面</a><br>如果打不开，再到项目文件夹双击「双击启动.cmd」。</p>
 <details id="manual">
@@ -670,9 +673,17 @@ function uploadRecording(file, extension, info) {
   });
 }
 
+function showSeparationProgress(info, message, percent) {
+  const meter = $("separation-meter");
+  meter.hidden = false;
+  if (Number.isFinite(percent)) meter.value = percent;
+  else meter.removeAttribute("value");
+  if (info.textContent !== message) info.textContent = message;
+}
+
 function inferInWorker(left, right, model, info) {
   return new Promise((resolve, reject) => {
-    const worker = new Worker("./demucs/worker.js?v=long-audio-1");
+    const worker = new Worker("./demucs/worker.js?v=separation-progress-1");
     let timeout;
     function resetTimeout() {
       clearTimeout(timeout);
@@ -686,13 +697,25 @@ function inferInWorker(left, right, model, info) {
       else resolve(data);
     }
     worker.onerror = event => finish(new Error(event.message || "无法运行分离，请试用桌面 Chrome 或 Edge。"));
+    let chunk = null;
+    let highWater = 0;
+    function update(processed, total) {
+      highWater = Math.max(highWater, Math.min(99, Math.floor(100 * processed / total)));
+      showSeparationProgress(info, "正在分离人声与伴奏 · " + highWater + "%", highWater);
+    }
     worker.onmessage = ({ data }) => {
-      // 引擎也会发送进度事件。只用最终波形或错误结算任务。
       if (data.error) finish(new Error(data.error));
       else if (data.vocals && data.accompaniment) finish(null, data);
-      else if (data.total > 0 && Number.isFinite(data.processed)) {
+      else if (data.total > 0 && Number.isFinite(data.chunkStart) && Number.isFinite(data.chunkEnd)) {
+        chunk = data;
         resetTimeout();
-        info.textContent = "正在本机分离 · " + Math.floor(100 * data.processed / data.total) + "%";
+        update(chunk.chunkStart, chunk.total);
+      } else if (chunk && data.msg === "PROGRESS_UPDATE" && Number.isFinite(data.data) && data.data >= 0 && data.data <= 1) {
+        resetTimeout();
+        update(chunk.chunkStart + data.data * (chunk.chunkEnd - chunk.chunkStart), chunk.total);
+      } else if (data.total > 0 && Number.isFinite(data.processed)) {
+        resetTimeout();
+        update(data.processed, data.total);
       }
     };
     worker.postMessage({ left, right, model }, [left.buffer, right.buffer, model]);
@@ -712,8 +735,8 @@ async function loadBrowserModel(info) {
 
   function update() {
     const total = loaded.reduce((sum, value) => sum + value, 0);
-    info.textContent = "正在加载模型 · " + (total / 1048576).toFixed(1) + " / "
-      + (bytes / 1048576).toFixed(1) + " MiB";
+    showSeparationProgress(info, "正在下载模型 · " + (total / 1048576).toFixed(1) + " / "
+      + (bytes / 1048576).toFixed(1) + " MiB", 100 * total / bytes);
   }
 
   async function download(index) {
@@ -802,8 +825,9 @@ async function separateInBrowser(file, ctx, info) {
   const mono = original.numberOfChannels === 1;
   info.textContent = "正在加载分离模型，第一次可能需要等待…";
   const model = await loadBrowserModel(info);
-  info.textContent = "正在本机分离人声与伴奏…";
+  showSeparationProgress(info, "正在初始化分离模型…");
   const result = await inferInWorker(original.getChannelData(0).slice(), original.getChannelData(mono ? 0 : 1).slice(), model, info);
+  showSeparationProgress(info, "正在准备试听音轨…", 99);
   const tracks = [result.vocals, result.accompaniment].map(channels => {
     const buffer = ctx.createBuffer(2, original.length, original.sampleRate);
     channels.forEach((channel, index) => {
@@ -823,6 +847,7 @@ $("recording").onchange = async () => {
   if (!file) return;
   const info = $("separation-info");
   if (!uploadEnabled) return;
+  $("separation-meter").hidden = true;
   const extension = file.name.match(/\.[^.]+$/)?.[0].toLowerCase();
   if (!/^\.(mp3|wav|flac)$/.test(extension) || !file.size || file.size > MAX_BYTES) {
     info.textContent = "请选择不超过 50 MB 的 MP3、WAV 或 FLAC 文件。";
@@ -865,8 +890,10 @@ $("recording").onchange = async () => {
     offset = 0;
     setMode("spatial");
     info.textContent = file.name + (result.mono ? " · 分离完成，伴奏已立体声化。" : " · 分离完成，保留伴奏立体声。");
+    if (!localSeparation) $("separation-meter").value = 100;
     completed = true;
   } catch (error) {
+    $("separation-meter").hidden = true;
     info.textContent = "分离失败 · " + error.message + " 可重新选择文件。";
     $("recording").value = "";
   } finally {
