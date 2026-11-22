@@ -6,6 +6,8 @@ const OVERLAP = 44100;
 
 self.onmessage = async ({ data: { left, right, model } }) => {
   try {
+    if (!model) model = await downloadModel();
+    self.postMessage({ initializing: true });
     importScripts("./demucs_onnx_simd.js");
     const runtime = await libdemucs();
     const allocated = [];
@@ -54,3 +56,85 @@ self.onmessage = async ({ data: { left, right, model } }) => {
     self.postMessage({ error: error.message || String(error) });
   }
 };
+
+async function downloadModel() {
+  const bytes = 54471499;
+  const partSize = 7 * 1024 * 1024;
+  const count = Math.ceil(bytes / partSize);
+  const loaded = new Array(count).fill(0);
+  const model = new Uint8Array(bytes);
+  const pending = new Set();
+  let next = 0;
+  let cancelled = false;
+  const cache = await (globalThis.caches?.open("unsung-model-35c8bd5").catch(() => null) ?? null);
+
+  function update() {
+    const total = loaded.reduce((sum, value) => sum + value, 0);
+    self.postMessage({ modelLoaded: total, modelTotal: bytes });
+  }
+
+  async function download(index) {
+    const offset = index * partSize;
+    const size = Math.min(partSize, bytes - offset);
+    const url = new URL("./model-35c8bd5.part" + String(index).padStart(2, "0"), self.location.href);
+    const cached = await cache?.match(url).catch(() => null);
+    if (cached) {
+      const data = new Uint8Array(await cached.arrayBuffer());
+      if (data.length === size) {
+        model.set(data, offset);
+        loaded[index] = size;
+        update();
+        return;
+      }
+    }
+    for (let attempt = 0; !cancelled; attempt++) {
+      const controller = new AbortController();
+      pending.add(controller);
+      let timer;
+      const resetTimer = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => controller.abort(), 30000);
+      };
+      try {
+        resetTimer();
+        const response = await fetch(url, { signal: controller.signal, cache: "force-cache" });
+        if (!response.ok || !response.body) throw new Error("HTTP " + response.status);
+        const reader = response.body.getReader();
+        loaded[index] = 0;
+        update();
+        while (true) {
+          resetTimer();
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (loaded[index] + value.length > size) throw new Error("模型分段过大");
+          model.set(value, offset + loaded[index]);
+          loaded[index] += value.length;
+          update();
+        }
+        if (loaded[index] !== size) throw new Error("模型分段不完整");
+        if (cache) await cache.put(url, new Response(model.slice(offset, offset + size))).catch(() => {});
+        return;
+      } catch {
+        controller.abort();
+        if (attempt === 2) throw new Error("模型下载未完成。请检查网络并重新选择文件，已下载完成的分段可以复用。");
+      } finally {
+        clearTimeout(timer);
+        pending.delete(controller);
+      }
+    }
+  }
+
+  async function lane() {
+    while (!cancelled && next < count) await download(next++);
+  }
+  update();
+  try {
+    await Promise.all(Array.from({ length: 4 }, lane));
+    return model.buffer;
+  } catch (error) {
+    cancelled = true;
+    for (const controller of pending) controller.abort();
+    throw error;
+  }
+}
+
