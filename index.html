@@ -683,14 +683,20 @@ function showSeparationProgress(info, message, percent) {
 
 function inferInWorker(left, right, model, info) {
   return new Promise((resolve, reject) => {
-    const worker = new Worker("./demucs/worker.js?v=separation-progress-1");
+    const worker = new Worker("./demucs/worker.js?v=background-1");
     let timeout;
     function resetTimeout() {
       clearTimeout(timeout);
-      timeout = setTimeout(() => finish(new Error("分离超时，请试用更短的录音。")), 600000);
+      if (!document.hidden) {
+        timeout = setTimeout(() => {
+          if (!document.hidden) finish(new Error("分离超时，请试用更短的录音。"));
+        }, 600000);
+      }
     }
+    document.addEventListener("visibilitychange", resetTimeout);
     resetTimeout();
     function finish(error, data) {
+      document.removeEventListener("visibilitychange", resetTimeout);
       clearTimeout(timeout);
       worker.terminate();
       if (error) reject(error);
@@ -706,7 +712,14 @@ function inferInWorker(left, right, model, info) {
     worker.onmessage = ({ data }) => {
       if (data.error) finish(new Error(data.error));
       else if (data.vocals && data.accompaniment) finish(null, data);
-      else if (data.total > 0 && Number.isFinite(data.chunkStart) && Number.isFinite(data.chunkEnd)) {
+      else if (data.modelTotal > 0) {
+        resetTimeout();
+        showSeparationProgress(info, "正在下载模型 · " + (data.modelLoaded / 1048576).toFixed(1) + " / "
+          + (data.modelTotal / 1048576).toFixed(1) + " MiB", 100 * data.modelLoaded / data.modelTotal);
+      } else if (data.initializing) {
+        resetTimeout();
+        showSeparationProgress(info, "正在初始化分离模型…");
+      } else if (data.total > 0 && Number.isFinite(data.chunkStart) && Number.isFinite(data.chunkEnd)) {
         chunk = data;
         resetTimeout();
         update(chunk.chunkStart, chunk.total);
@@ -718,90 +731,10 @@ function inferInWorker(left, right, model, info) {
         update(data.processed, data.total);
       }
     };
-    worker.postMessage({ left, right, model }, [left.buffer, right.buffer, model]);
+    const transfer = [left.buffer, right.buffer];
+    if (model) transfer.push(model);
+    worker.postMessage({ left, right, model }, transfer);
   });
-}
-
-async function loadBrowserModel(info) {
-  const bytes = 54471499;
-  const partSize = 7 * 1024 * 1024;
-  const count = Math.ceil(bytes / partSize);
-  const loaded = new Array(count).fill(0);
-  const model = new Uint8Array(bytes);
-  const pending = new Set();
-  let next = 0;
-  let cancelled = false;
-  const cache = await (globalThis.caches?.open("unsung-model-35c8bd5").catch(() => null) ?? null);
-
-  function update() {
-    const total = loaded.reduce((sum, value) => sum + value, 0);
-    showSeparationProgress(info, "正在下载模型 · " + (total / 1048576).toFixed(1) + " / "
-      + (bytes / 1048576).toFixed(1) + " MiB", 100 * total / bytes);
-  }
-
-  async function download(index) {
-    const offset = index * partSize;
-    const size = Math.min(partSize, bytes - offset);
-    const url = new URL("./demucs/model-35c8bd5.part" + String(index).padStart(2, "0"), location.href);
-    const cached = await cache?.match(url).catch(() => null);
-    if (cached) {
-      const data = new Uint8Array(await cached.arrayBuffer());
-      if (data.length === size) {
-        model.set(data, offset);
-        loaded[index] = size;
-        update();
-        return;
-      }
-    }
-    for (let attempt = 0; !cancelled; attempt++) {
-      const controller = new AbortController();
-      pending.add(controller);
-      let timer;
-      const resetTimer = () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => controller.abort(), 30000);
-      };
-      try {
-        resetTimer();
-        const response = await fetch(url, { signal: controller.signal, cache: "force-cache" });
-        if (!response.ok || !response.body) throw new Error("HTTP " + response.status);
-        const reader = response.body.getReader();
-        loaded[index] = 0;
-        update();
-        while (true) {
-          resetTimer();
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (loaded[index] + value.length > size) throw new Error("模型分段过大");
-          model.set(value, offset + loaded[index]);
-          loaded[index] += value.length;
-          update();
-        }
-        if (loaded[index] !== size) throw new Error("模型分段不完整");
-        if (cache) await cache.put(url, new Response(model.slice(offset, offset + size))).catch(() => {});
-        return;
-      } catch {
-        controller.abort();
-        if (attempt === 2) throw new Error("模型下载未完成。请检查网络并重新选择文件，已下载完成的分段可以复用。");
-      } finally {
-        clearTimeout(timer);
-        pending.delete(controller);
-      }
-    }
-  }
-
-  async function lane() {
-    while (!cancelled && next < count) await download(next++);
-  }
-  update();
-  try {
-    await Promise.all(Array.from({ length: 4 }, lane));
-    return model.buffer;
-  } catch (error) {
-    cancelled = true;
-    for (const controller of pending) controller.abort();
-    throw error;
-  }
 }
 
 async function separateInBrowser(file, ctx, info) {
@@ -823,10 +756,8 @@ async function separateInBrowser(file, ctx, info) {
     original = clipped;
   }
   const mono = original.numberOfChannels === 1;
-  info.textContent = "正在加载分离模型，第一次可能需要等待…";
-  const model = await loadBrowserModel(info);
-  showSeparationProgress(info, "正在初始化分离模型…");
-  const result = await inferInWorker(original.getChannelData(0).slice(), original.getChannelData(mono ? 0 : 1).slice(), model, info);
+  showSeparationProgress(info, "正在准备模型…");
+  const result = await inferInWorker(original.getChannelData(0).slice(), original.getChannelData(mono ? 0 : 1).slice(), null, info);
   showSeparationProgress(info, "正在准备试听音轨…", 99);
   const tracks = [result.vocals, result.accompaniment].map(channels => {
     const buffer = ctx.createBuffer(2, original.length, original.sampleRate);
