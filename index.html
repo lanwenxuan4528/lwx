@@ -24,6 +24,8 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 .zone-label {position:absolute;top:8px;left:50%;transform:translateX(-50%);pointer-events:none;color:#d2e2ee;font-size:.8rem;white-space:nowrap}
 .stand-label {top:auto;bottom:8px}
 #listener {position:absolute;transform:translate(-50%,-50%);pointer-events:none;background:#a5efcf;color:#12231d;border-radius:18px;padding:2px 8px;white-space:nowrap;font-size:.82rem}
+#facing {position:absolute;left:50%;top:50%;width:0;height:0}
+#facing::before {content:"";position:absolute;left:-6px;top:-24px;width:12px;height:13px;background:#a5efcf;clip-path:polygon(50% 0,100% 100%,50% 73%,0 100%)}
 #status {min-height:1.55em;color:#b7ebd8;margin-top:10px}
 .transport-panel {margin-top:16px;padding-top:14px;border-top:1px solid #30394b}
 #file-note a {display:inline-block;margin-bottom:4px;color:#9be8cb;font-weight:700}
@@ -57,11 +59,11 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 <h2 id="venue-title">拖动我的位置，探索听感</h2>
 <p class="muted">可拖动、点选，或聚焦场地图后用方向键移动。看台朝向随座位转向舞台。</p>
 <div id="venue" tabindex="0" role="group" aria-label="虚拟场地，可用方向键移动">
-<div class="stage">舞台 · 歌手</div>
+<div class="stage" id="stage">舞台 · 歌手</div>
 <div class="floor" id="floor">
 <div class="inner-floor" id="inner-floor" aria-hidden="true"><span class="zone-label">内场</span></div>
 <span class="zone-label stand-label" aria-hidden="true">看台</span>
-<span id="listener">▲ 我</span>
+<span id="listener"><span id="facing" aria-hidden="true"></span>我</span>
 </div>
 </div>
 <small id="seat-position"></small>
@@ -183,9 +185,21 @@ function ramp(param, value, seconds = 0.045) {
   param.setTargetAtTime(value, context.currentTime, seconds);
 }
 
+function updateFacing() {
+  const stage = $("stage").getBoundingClientRect();
+  const marker = $("listener").getBoundingClientRect();
+  // 屏幕 Y 向下，小箭头的零角度向上。
+  const dx = stage.left + stage.width / 2 - (marker.left + marker.width / 2);
+  const dy = stage.top + stage.height / 2 - (marker.top + marker.height / 2);
+  $("facing").style.transform = "rotate(" + Math.atan2(dx, -dy) + "rad)";
+}
+
+window.addEventListener("resize", updateFacing);
+
 function paintPosition() {
   $("listener").style.left = (position.x + 6) / 12 * 100 + "%";
   $("listener").style.top = (position.z - 1.6) / 10.4 * 100 + "%";
+  updateFacing();
   for (const button of $("presets").querySelectorAll("button")) {
     const preset = presets[button.dataset.position];
     button.setAttribute("aria-pressed", preset.x === position.x && preset.z === position.z);
