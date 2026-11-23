@@ -20,6 +20,9 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 #venue {position:relative;height:230px;margin:14px 0;border-radius:12px;background:linear-gradient(#283650,#171d2a);border:1px solid #475572;touch-action:none}
 .stage {position:absolute;top:0;left:15%;width:70%;height:18%;text-align:center;padding-top:6px;background:#455578;border-radius:0 0 14px 14px}
 .floor {position:absolute;left:8%;right:8%;top:26%;bottom:8%;border:1px dashed #62728c;border-radius:8px;cursor:crosshair;background:repeating-linear-gradient(to bottom,transparent 0 30px,#a2b0ca18 31px 32px)}
+.inner-floor {position:absolute;box-sizing:border-box;border:1px solid #9be8cb80;border-radius:0 0 7px 7px;background:#9be8cb19;pointer-events:none}
+.zone-label {position:absolute;top:8px;left:50%;transform:translateX(-50%);pointer-events:none;color:#d2e2ee;font-size:.8rem;white-space:nowrap}
+.stand-label {top:auto;bottom:8px}
 #listener {position:absolute;transform:translate(-50%,-50%);pointer-events:none;background:#a5efcf;color:#12231d;border-radius:18px;padding:2px 8px;white-space:nowrap;font-size:.82rem}
 #status {min-height:1.55em;color:#b7ebd8;margin-top:10px}
 .transport-panel {margin-top:16px;padding-top:14px;border-top:1px solid #30394b}
@@ -35,7 +38,6 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 <div>
 <h2>导入音频</h2>
 <p class="muted">支持 MP3、WAV 和 FLAC，最大 50 MB，建议优先使用 MP3 或 WAV。超过 4 分 30 秒会自动裁掉末尾。</p>
-<p class="muted">直接在浏览器里给原曲加上空间音效。音频文件留在你的设备上。</p>
 <label class="file">选择音频<input id="recording" type="file" accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/flac"></label>
 <small id="file-info" role="status"></small>
 </div>
@@ -53,11 +55,16 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 </section>
 <section aria-labelledby="venue-title">
 <h2 id="venue-title">拖动我的位置，探索听感</h2>
-<p class="muted">舞台上方固定为正前方。可拖动、点选，或聚焦场地图后用方向键移动。</p>
+<p class="muted">可拖动、点选，或聚焦场地图后用方向键移动。看台朝向随座位转向舞台。</p>
 <div id="venue" tabindex="0" role="group" aria-label="虚拟场地，可用方向键移动">
 <div class="stage">舞台 · 歌手</div>
-<div class="floor" id="floor"><span id="listener">▲ 我</span></div>
+<div class="floor" id="floor">
+<div class="inner-floor" id="inner-floor" aria-hidden="true"><span class="zone-label">内场</span></div>
+<span class="zone-label stand-label" aria-hidden="true">看台</span>
+<span id="listener">▲ 我</span>
 </div>
+</div>
+<small id="seat-position"></small>
 <div class="controls" id="presets">
 <button data-position="front">前排中央</button><button data-position="rear">后排中央</button><button data-position="left">左侧</button><button data-position="right">右侧</button>
 </div>
@@ -126,15 +133,42 @@ function audioContext() {
   return context;
 }
 
-// 场地图横轴向右为 +X，纵轴向后为 +Z，单位按米估计。
-// 听众固定面向 -Z。几何相对坐标是 (-x, 0, -z)。
-// 输出 X 依本机试听反馈镜像一次，Z 保持不变，以校正实际听到的左右。
+// 沿用现有的横向 ±6 米、纵向 1.6 至 12 米，舞台在 -Z 方向。
+// 内场贴近舞台，左右和后方的剩余区域是看台。
+const inner = { halfWidth: 3, rear: 7.8 };
+const innerArea = $("inner-floor");
+innerArea.style.left = (6 - inner.halfWidth) / 12 * 100 + "%";
+innerArea.style.width = inner.halfWidth / 6 * 100 + "%";
+innerArea.style.height = (inner.rear - 1.6) / 10.4 * 100 + "%";
+
+function seatElevation({ x, z }) {
+  const side = (Math.abs(x) - inner.halfWidth) / (6 - inner.halfWidth);
+  const rear = (z - inner.rear) / (12 - inner.rear);
+  // 取更靠外的一侧，转角不会比其它外缘更低，交界处连续。
+  const tier = clamp(Math.max(side, rear), 0, 1);
+  return { zone: tier > 0 ? "看台" : "内场", y: 2 - 12 * tier, tier };
+}
+
+// 舞台几何中心是平面坐标原点。Web Audio 中 +X 对应听众右耳，-Z 对应正前。
+function stageDirection({ x, z }) {
+  const { y, tier } = seatElevation({ x, z });
+  const bearing = Math.atan2(-x, z);
+  // 看台转向舞台中心时恰好居中。额外转最多 12°，保留侧看台的同侧来声。
+  // 中轴不偏向任何一耳。交界后逐渐转头，避免跨区时声像跳变。
+  const sideBias = x / 6 * Math.PI / 15;
+  const progress = clamp(tier / 0.35, 0, 1);
+  const turn = progress ** 2 * (3 - 2 * progress);
+  const relative = bearing * (1 - turn) + sideBias * turn;
+  const distance = Math.hypot(x, z);
+  return { x: Math.sin(relative) * distance, y, z: -Math.cos(relative) * distance };
+}
+
 function venueParameters({ x, z }, intensity) {
   const distance = Math.hypot(x, z);
   const near = 1.6;
   const far = clamp((distance - near) / 11, 0, 1);
   return {
-    x, z: -z,
+    ...stageDirection({ x, z }),
     direct: 0.96 - 0.29 * far,
     cutoff: 17300 - 3200 * far,
     presence: 2.2 * far,
@@ -156,18 +190,29 @@ function paintPosition() {
     const preset = presets[button.dataset.position];
     button.setAttribute("aria-pressed", preset.x === position.x && preset.z === position.z);
   }
-  $("venue").setAttribute("aria-label",
-    "虚拟场地，可用方向键移动。横向 " + position.x.toFixed(1) + " 米，距舞台 " + position.z.toFixed(1) + " 米");
+  const seat = seatElevation(position);
+  const height = Math.round(seat.y * 10) / 10;
+  const direction = height > 0 ? "上方" : "下方";
+  const relative = height === 0 ? "舞台来声与耳朵等高" : "舞台来声在耳朵" + direction + "约 " + Math.abs(height).toFixed(1) + " 米";
+  const { x } = stageDirection(position);
+  const side = Math.abs(x) < 0.05 ? "正前" : x < 0 ? "左前" : "右前";
+  const label = seat.zone + " · " + side + " · " + relative;
+  $("seat-position").textContent = label;
+  $("venue").setAttribute("aria-label", "虚拟场地，可用方向键移动。" + label);
 }
 
-function updateVenue() {
+function updateVenue(immediate = false) {
   paintPosition();
   const strength = +$("intensity").value;
   $("strength").value = strength + "%";
   if (!graph) return;
   const p = venueParameters(position, strength / 100);
-  ramp(graph.pan.positionX, p.x);
-  ramp(graph.pan.positionZ, p.z);
+  for (const [param, value] of [
+    [graph.pan.positionX, p.x], [graph.pan.positionY, p.y], [graph.pan.positionZ, p.z]
+  ]) {
+    if (immediate === true) param.setValueAtTime(value, context.currentTime);
+    else ramp(param, value);
+  }
   ramp(graph.voiceDirect.gain, p.direct);
   ramp(graph.filter.frequency, p.cutoff);
   ramp(graph.presence.gain, p.presence);
@@ -399,7 +444,7 @@ function pause() {
 function begin(atOffset) {
   const ctx = context;
   graph = buildGraph(ctx);
-  updateVenue();
+  updateVenue(true);
   setMode(mode, true);
   const at = ctx.currentTime + 0.025;
   const nodes = [
@@ -624,4 +669,3 @@ if (location.protocol !== "file:") {
 </script>
 </body>
 </html>
-
