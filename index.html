@@ -23,12 +23,8 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 #listener {position:absolute;transform:translate(-50%,-50%);pointer-events:none;background:#a5efcf;color:#12231d;border-radius:18px;padding:2px 8px;white-space:nowrap;font-size:.82rem}
 #status {min-height:1.55em;color:#b7ebd8;margin-top:10px}
 .transport-panel {margin-top:16px;padding-top:14px;border-top:1px solid #30394b}
-.demo-panel {margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #30394b}
-#demo {background:#9be8cb;color:#101d1d;font-weight:700;margin-top:8px}
 #file-note a {display:inline-block;margin-bottom:4px;color:#9be8cb;font-weight:700}
 @media(max-width:735px){.grid{grid-template-columns:1fr}main{padding:20px 12px}}
-.separation-meter {width:100%;height:12px;margin-top:8px;accent-color:#a5efcf}
-.separation-meter[hidden] {display:none}
 </style>
 </head>
 <body>
@@ -36,28 +32,13 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 <header><h1>Unlive</h1><p class="muted">戴上耳机，移动你在场地中的位置。同一位置的空间感会因耳机和听者而异。</p></header>
 <div class="grid">
 <section aria-label="音频与播放">
-<div class="demo-panel" id="demo-panel">
-<h2 id="demo-heading">立即体验</h2>
-<p class="muted">戴耳机试听内置的合成哼唱与伴奏，试试切换座位和原版。</p>
-<button id="demo">▶ 播放内置示例</button>
+<div>
+<h2>导入音频</h2>
+<p class="muted">支持 MP3、WAV 和 FLAC，最大 50 MB，建议优先使用 MP3 或 WAV。超过 4 分 30 秒会自动裁掉末尾。</p>
+<p class="muted">直接在浏览器里给原曲加上空间音效。音频文件留在你的设备上。</p>
+<label class="file">选择音频<input id="recording" type="file" accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/flac"></label>
+<small id="file-info" role="status"></small>
 </div>
-<div id="local-separation">
-<h2 id="import-heading">导入录音并分离</h2>
-<p class="muted" id="upload-limit">支持 MP3、WAV 和 FLAC，最大 50 MB，建议优先使用 MP3 或 WAV。超过 4 分 30 秒会自动裁掉末尾多余部分。</p>
-<p class="muted" id="browser-note" hidden>录音在浏览器内处理。首次需要加载模型，建议使用桌面 Chrome 或 Edge。</p>
-<label class="file">上传音频<input id="recording" type="file" accept=".wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.webm"></label>
-<small id="separation-info" role="status"></small>
-<progress id="separation-meter" class="separation-meter" max="100" aria-label="模型加载和音频分离进度" hidden></progress>
-</div>
-<p class="muted" id="file-note" hidden><a href="http://127.0.0.1:8767/">打开 Unlive 本地测试版</a><br>如果打不开，双击项目里的「双击启动.cmd」。</p>
-<details id="manual">
-<summary>手动导入分轨</summary>
-<p class="muted">导入从同一时间点开始的人声和立体声伴奏。</p>
-<label class="file">人声<input id="voice" type="file" accept=".wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.webm"></label><small id="voice-info"></small>
-<label class="file">立体声伴奏<input id="music" type="file" accept=".wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.webm"></label><small id="music-info"></small>
-<label class="file">原版混音（可选）<input id="original" type="file" accept=".wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.webm"></label><small id="original-info"></small>
-<button id="remove-original" hidden>移除原版</button>
-</details>
 <p id="status" role="status"></p>
 <div class="transport-panel" role="group" aria-labelledby="play-heading">
 <h2 id="play-heading">试听与对比</h2>
@@ -65,12 +46,7 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 <button id="play" disabled>播放</button><button id="spatial" aria-pressed="true">空间版</button>
 <button id="dry" aria-pressed="false" disabled aria-describedby="compare-note">原版</button><button id="reset">重置</button>
 </div>
-<small id="compare-note">导入对应的原版混音后可切换。</small>
-<div id="preview-choice" class="controls" role="group" aria-label="一分钟试听结束后的选择" hidden style="display:none">
-<button id="continue-full" type="button">继续听整首</button>
-<button id="end-preview" type="button">不听了</button>
-<button id="change-preview" type="button">换一首</button>
-</div>
+<small id="compare-note">导入音频后即可切换原版和空间版。</small>
 <label class="range-label" for="seek">播放进度 <output id="clock">0:00 / 0:00</output></label>
 <input class="range" id="seek" type="range" value="0" max="0" min="0" step="0.01" disabled>
 </div>
@@ -97,13 +73,11 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 
 const $ = id => document.getElementById(id);
 const MAX_SECONDS = 270;
-const PREVIEW_SECONDS = 60;
 const DEFAULT_INTENSITY = 65;
 const MAX_BYTES = 50_000_000;
-const ALIGN_TOLERANCE = 0.25;
 const slots = {};
 for (const key of ["voice", "music", "original"]) {
-  slots[key] = { buffer: null, loading: false, revision: 0, rms: 0 };
+  slots[key] = { buffer: null, rms: 0 };
 }
 const presets = {
   front: { x: 0, z: 2 },
@@ -119,48 +93,26 @@ let canCompare = false;
 let mode = "spatial";
 let intent = 0;
 let seeking = false;
-let separating = false;
-let previewReady = false;
-let previewSession = null;
-const JOB_KEY = "unlive-current-separation";
-let resumableJob = null;
+let loading = false;
+const JOB_KEY = "unlive-current-mix";
+let sourceId;
 
-function savedJob() {
+function readSession() {
   try { return JSON.parse(sessionStorage.getItem(JOB_KEY)); }
   catch { return null; }
 }
 
-function rememberJob(patch) {
-  if (!resumableJob) return;
-  Object.assign(resumableJob, patch);
-  try { sessionStorage.setItem(JOB_KEY, JSON.stringify(resumableJob)); }
-  catch { /* The current task can still finish in memory. */ }
+function saveSession() {
+  try {
+    if (!sourceId) return sessionStorage.removeItem(JOB_KEY);
+    sessionStorage.setItem(JOB_KEY, JSON.stringify({
+      id: sourceId, offset: positionNow(), position, mode,
+      intensity: $("intensity").value
+    }));
+  } catch { /* Playback can continue when storage is unavailable. */ }
 }
 
-window.addEventListener("pagehide", () => rememberJob({
-  ...(length ? { position: positionNow() } : {}),
-  venue: position,
-  intensity: $("intensity").value,
-  mode
-}));
-const openedAsFile = location.protocol === "file:";
-const lightTrial = location.hostname === "127.0.0.1" && new URLSearchParams(location.search).has("lite");
-const localSeparation = location.protocol === "http:" && location.hostname === "127.0.0.1"
-  && !lightTrial && !new URLSearchParams(location.search).has("browser");
-if (localSeparation) {
-  $("recording").accept = ".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/flac";
-}
-const uploadEnabled = !openedAsFile;
-$("local-separation").hidden = !uploadEnabled;
-$("demo-panel").hidden = true;
-$("manual").hidden = true;
-$("file-note").closest("section").querySelector(".transport-panel").hidden = openedAsFile;
-$("browser-note").hidden = !uploadEnabled || localSeparation;
-if (lightTrial) {
-  $("import-heading").textContent = "轻量模型对照测试";
-  $("browser-note").textContent = "使用低精度权重版 Demucs。请与标准版使用同一音频对比。";
-}
-$("file-note").hidden = !openedAsFile;
+window.addEventListener("pagehide", saveSession);
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const status = message => { $("status").textContent = message; };
@@ -471,12 +423,7 @@ function begin(atOffset) {
     if (active !== state) return;
     offset = length;
     stopSources();
-    if (previewReady && previewSession && !previewSession.accepted) {
-      status("是否等待整首效果完成");
-      showPreviewChoice(true);
-    } else {
-      status("试听结束。");
-    }
+    status("试听结束。");
     updateTransport();
   };
   updateTransport();
@@ -514,387 +461,18 @@ function updateTransport() {
 }
 
 function refreshFiles() {
-  const loading = (separating && !previewReady) || Object.values(slots).some(slot => slot.loading);
-  const voice = slots.voice.buffer;
-  const music = slots.music.buffer;
-  const original = slots.original.buffer;
-  const aligned = voice && music && Math.abs(voice.duration - music.duration) <= ALIGN_TOLERANCE;
-  const common = aligned ? Math.min(voice.duration, music.duration) : 0;
-  canCompare = Boolean(original && common && Math.abs(voice.duration - original.duration) <= ALIGN_TOLERANCE
-    && Math.abs(music.duration - original.duration) <= ALIGN_TOLERANCE);
-  length = loading ? 0 : (canCompare ? Math.min(common, original.duration) : common);
-  $("play").disabled = $("seek").disabled = !length;
+  length = loading ? 0 : (slots.original.buffer?.duration ?? 0);
+  canCompare = Boolean(length);
+  $("play").disabled = $("seek").disabled = $("dry").disabled = !length;
   $("seek").max = length;
-  $("dry").disabled = !length || !canCompare;
-  $("remove-original").hidden = !original && !slots.original.loading && !$("original").value;
-  $("compare-note").textContent = !original ? "导入对应的原版混音后可切换。"
-    : !aligned ? "请先导入时间对应的人声和伴奏。"
-    : !canCompare ? "原版与分轨时长相差超过 0.25 秒，无法对比。"
-    : "两种版本共享播放进度，切换时会短暂淡化。";
+  $("compare-note").textContent = length
+    ? "两种版本共享播放进度，切换时会短暂淡化。"
+    : "导入音频后即可切换原版和空间版。";
   setMode(mode);
   updateTransport();
-  if (separating) status(previewReady ? "前 1 分钟可以试听，剩余音频仍在分离。" : "");
-  else if (loading) status("正在解码文件…");
-  else if (voice && music && !aligned) status("人声和伴奏时长相差超过 0.25 秒，请使用时间对应的分轨。");
-  else if (length) status(uploadEnabled ? "音频已就绪。可拖动右侧场地图上的位置。" : "文件已就绪，点击播放。等长文件仍需确认起点一致。");
-  else status("");
 }
 
-// 阶段二取得已解码且对齐的分轨后，可经此边界送入同一播放流程。
-function acceptTrack(key, buffer) {
-  if (buffer.length > MAX_SECONDS * buffer.sampleRate) {
-    throw new Error("音轨超过当前处理时长上限。");
-  }
-  if (buffer.duration < 0.1) throw new Error("音频不足 0.1 秒。");
-  if (key === "music" && buffer.numberOfChannels !== 2) throw new Error("伴奏必须为双声道立体声。");
-  if (buffer.numberOfChannels < 1 || buffer.numberOfChannels > 2) throw new Error("只支持单声道或双声道文件。");
-  slots[key].rms = measuredRms(buffer);
-  slots[key].buffer = buffer;
-}
-
-// 原创无词哼唱与伴奏，由简短的旋律及合成音色构成，无需下载素材。
-function makeDemo(ctx) {
-  const rate = ctx.sampleRate;
-  const frames = rate * 12;
-  const voice = ctx.createBuffer(1, frames, rate);
-  const music = ctx.createBuffer(2, frames, rate);
-  const original = ctx.createBuffer(2, frames, rate);
-  const melody = [64, 67, 69, 72, 71, 67, 64, 62, 64, 69, 67, 64];
-  const chords = [[48, 55, 60], [45, 52, 57], [53, 60, 64], [55, 62, 67]];
-  const v = voice.getChannelData(0);
-  const channels = [music.getChannelData(0), music.getChannelData(1)];
-  const mix = [original.getChannelData(0), original.getChannelData(1)];
-  const frequency = note => 440 * 2 ** ((note - 69) / 12);
-  const tau = 2 * Math.PI;
-  let phase = 0;
-  for (let i = 0; i < frames; i++) {
-    const t = i / rate;
-    const local = t % 1;
-    const env = clamp(Math.min((local - .025) / .12, (.96 - local) / .19), 0, 1);
-    phase += tau * frequency(melody[Math.floor(t)]) * (1 + .004 * Math.sin(tau * 5.1 * t)) / rate;
-    v[i] = .21 * env * (Math.sin(phase) + .29 * Math.sin(2 * phase) + .15 * Math.sin(3 * phase) + .09 * Math.sin(5 * phase));
-    const chord = chords[Math.floor(t / 3)];
-    const chordTime = t % 3;
-    const bed = clamp(Math.min(chordTime / .12, (3 - chordTime) / .25), 0, 1);
-    const pulse = t % .5;
-    const bass = .07 * Math.sin(tau * frequency(chord[0] - 12) * pulse)
-      * Math.min(pulse / .025, 1) * Math.exp(-pulse * 8);
-    for (let channel = 0; channel < 2; channel++) {
-      const harmonic = frequency(chord[channel + 1]);
-      const arpeggio = frequency(chord[(Math.floor(t * 4) + channel) % 3] + 12);
-      const pick = t % .25;
-      const pluck = .056 * Math.sin(tau * arpeggio * pick)
-        * Math.min(pick / .009, 1) * Math.exp(-pick * (channel ? 12 : 16));
-      channels[channel][i] = bass + bed * .052 * Math.sin(tau * harmonic * chordTime) + pluck;
-      mix[channel][i] = v[i] + channels[channel][i];
-    }
-  }
-  return [voice, music, original];
-}
-
-$("demo").onclick = () => {
-  if (separating) return;
-  pause();
-  try {
-    const buffers = makeDemo(audioContext());
-    ["voice", "music", "original"].forEach((key, i) => {
-      slots[key].revision++;
-      slots[key].loading = false;
-      acceptTrack(key, buffers[i]);
-      $(key).value = "";
-      const info = $(key + "-info");
-      delete info.dataset.error;
-      info.textContent = "内置示例 · 12 秒";
-    });
-    offset = 0;
-    mode = "spatial";
-    refreshFiles();
-    play();
-  } catch (error) {
-    status("无法加载示例 · " + error.message);
-  }
-};
-
-async function importTrack(key, file) {
-  pause();
-  offset = 0;
-  const slot = slots[key];
-  const revision = ++slot.revision;
-  slot.buffer = null;
-  slot.rms = 0;
-  slot.loading = Boolean(file);
-  const info = $(key + "-info");
-  delete info.dataset.error;
-  info.textContent = file ? "正在读取 " + file.name : "";
-  refreshFiles();
-  if (!file) return;
-  try {
-    if (!/\.(wav|mp3|flac|m4a|aac|ogg|opus|webm)$/i.test(file.name)) throw new Error("不支持该扩展名，请选择 WAV 或 MP3 等音频。");
-    if (!file.size) throw new Error("文件为空。");
-    if (file.size > MAX_BYTES) throw new Error("文件超过 50 MB。");
-    const ctx = audioContext();
-    let buffer;
-    try {
-      buffer = await ctx.decodeAudioData(await file.arrayBuffer());
-    } catch {
-      throw new Error("浏览器无法解码该文件。请确认文件完整，或转为 WAV/MP3。");
-    }
-    if (revision !== slot.revision) return;
-    acceptTrack(key, buffer);
-    info.textContent = file.name + " · " + buffer.duration.toFixed(2) + " 秒 · " + buffer.numberOfChannels + " 声道";
-  } catch (error) {
-    if (revision !== slot.revision) return;
-    info.dataset.error = "";
-    info.textContent = error.message;
-    $(key).value = "";
-  } finally {
-    if (revision === slot.revision) {
-      slot.loading = false;
-      refreshFiles();
-    }
-  }
-}
-
-for (const key of Object.keys(slots)) {
-  $(key).onchange = event => {
-    if (event.target.files.length) importTrack(key, event.target.files[0]);
-  };
-}
-
-// 单声道伴奏保留居中的直达声，加入轻量的左右反相差分空间成分。
-// 混为单声道时差分抵消；立体声原录音跳过此处理。
-function widenMono(ctx, stereo) {
-  const out = ctx.createBuffer(2, stereo.length, stereo.sampleRate);
-  const left = stereo.getChannelData(0);
-  const right = stereo.getChannelData(1);
-  const a = out.getChannelData(0);
-  const b = out.getChannelData(1);
-  const short = Math.round(stereo.sampleRate * 0.013);
-  const long = Math.round(stereo.sampleRate * 0.023);
-  for (let i = 0; i < stereo.length; i++) {
-    const center = (left[i] + right[i]) / 2;
-    const early = i >= short ? (left[i - short] + right[i - short]) / 2 : 0;
-    const late = i >= long ? (left[i - long] + right[i - long]) / 2 : 0;
-    const side = 0.12 * (early - late);
-    a[i] = center + side;
-    b[i] = center - side;
-  }
-  return out;
-}
-
-function unpackTracks(data) {
-  const header = new DataView(data).getUint32(0, true);
-  const { lengths, mono } = JSON.parse(new TextDecoder().decode(data.slice(4, 4 + header)));
-  let cursor = 4 + header;
-  const tracks = lengths.map(size => {
-    const item = data.slice(cursor, cursor + size);
-    cursor += size;
-    return item;
-  });
-  if (tracks.length !== 3 || cursor !== data.byteLength) throw new Error("分离结果不完整，请重试。");
-  return { tracks, mono };
-}
-
-function uploadRecording(file, extension, info) {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open("POST", "/api/separate");
-    request.responseType = "arraybuffer";
-    request.timeout = 720000;
-    request.setRequestHeader("Content-Type", "application/octet-stream");
-    request.setRequestHeader("X-Audio-Extension", extension);
-    request.upload.onload = () => { info.textContent = "文件已传到本机 · 正在处理音频。整首歌可能需要几分钟，请保持页面打开。"; };
-    request.onerror = () => reject(new Error("无法连接本地服务。请确认 Python 窗口仍在运行。"));
-    request.ontimeout = () => reject(new Error("等待分离结果超时，请用更短的片段重试。"));
-    request.onload = () => {
-      if (request.status === 200) { resolve(request.response); return; }
-      try {
-        const data = JSON.parse(new TextDecoder().decode(request.response));
-        reject(new Error(data.error || "分离失败，请重试。"));
-      } catch {
-        reject(new Error("本地分离接口不可用，请用更新后的 serve.py 启动。"));
-      }
-    };
-    request.send(file);
-  });
-}
-
-function showSeparationProgress(info, message, percent) {
-  const meter = $("separation-meter");
-  meter.hidden = false;
-  if (Number.isFinite(percent)) meter.value = percent;
-  else meter.removeAttribute("value");
-  if (info.textContent !== message) info.textContent = message;
-}
-
-function inferInWorker(left, right, model, info, onPreview, signal, resumeId) {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) { reject(signal.reason); return; }
-    const worker = new Worker("./demucs/worker.js?v=resume-1");
-    let timeout;
-    function resetTimeout() {
-      clearTimeout(timeout);
-      if (!document.hidden) {
-        timeout = setTimeout(() => {
-          if (!document.hidden) finish(new Error("分离超时，请试用更短的录音。"));
-        }, 600000);
-      }
-    }
-    document.addEventListener("visibilitychange", resetTimeout);
-    resetTimeout();
-    function finish(error, data) {
-      signal?.removeEventListener("abort", abort);
-      document.removeEventListener("visibilitychange", resetTimeout);
-      clearTimeout(timeout);
-      worker.terminate();
-      if (error) reject(error);
-      else resolve(data);
-    }
-    function abort() { finish(signal.reason); }
-    signal?.addEventListener("abort", abort, { once: true });
-    worker.onerror = event => finish(new Error(event.message || "无法运行分离，请试用桌面 Chrome 或 Edge。"));
-    let chunk = null;
-    let highWater = resumableJob?.total > 0
-      ? Math.min(99, Math.floor(100 * resumableJob.processed / resumableJob.total)) : 0;
-    function update(processed, total) {
-      highWater = Math.max(highWater, Math.min(99, Math.floor(100 * processed / total)));
-      showSeparationProgress(info, "正在分离人声与伴奏 · " + highWater + "%", highWater);
-    }
-    worker.onmessage = ({ data }) => {
-      if (data.error) finish(new Error(data.error));
-      else if (data.vocals && data.accompaniment) finish(null, data);
-      else if (data.checkpointUnavailable) {
-        status("浏览器存储空间不足，刷新只能恢复已经保存的进度。");
-      }
-      else if (data.preview && onPreview) {
-        try { onPreview(data.preview); }
-        catch (error) { console.warn("Preview setup failed", error); }
-      }
-      else if (data.modelTotal > 0) {
-        resetTimeout();
-        showSeparationProgress(info, "正在下载模型 · " + (data.modelLoaded / 1048576).toFixed(1) + " / "
-          + (data.modelTotal / 1048576).toFixed(1) + " MiB", 100 * data.modelLoaded / data.modelTotal);
-      } else if (data.initializing) {
-        resetTimeout();
-        showSeparationProgress(info, "正在初始化分离模型…");
-      } else if (data.total > 0 && Number.isFinite(data.chunkStart) && Number.isFinite(data.chunkEnd)) {
-        chunk = data;
-        resetTimeout();
-        update(chunk.chunkStart, chunk.total);
-      } else if (chunk && data.msg === "PROGRESS_UPDATE" && Number.isFinite(data.data) && data.data >= 0 && data.data <= 1) {
-        resetTimeout();
-        update(chunk.chunkStart + data.data * (chunk.chunkEnd - chunk.chunkStart), chunk.total);
-      } else if (data.total > 0 && Number.isFinite(data.processed)) {
-        resetTimeout();
-        if (data.saved) rememberJob({
-          processed: Math.max(resumableJob?.processed || 0, data.processed),
-          total: data.total
-        });
-        update(data.processed, data.total);
-      }
-    };
-    const transfer = [left.buffer, right.buffer];
-    if (model) transfer.push(model);
-    worker.postMessage({ left, right, model, preview: Boolean(onPreview), resumeId }, transfer);
-  });
-}
-
-async function loadBrowserModel(info, bytes = 54471499, prefix = "model-35c8bd5.part") {
-  const partSize = 7 * 1024 * 1024;
-  const count = Math.ceil(bytes / partSize);
-  const loaded = new Array(count).fill(0);
-  const model = new Uint8Array(bytes);
-  const pending = new Set();
-  let next = 0;
-  let cancelled = false;
-  const cacheName = prefix === "model-35c8bd5.part" ? "unsung-model-35c8bd5" : "unsung-" + prefix;
-  const cache = await (globalThis.caches?.open(cacheName).catch(() => null) ?? null);
-
-  function update() {
-    const total = loaded.reduce((sum, value) => sum + value, 0);
-    showSeparationProgress(info, "正在下载模型 · " + (total / 1048576).toFixed(1) + " / "
-      + (bytes / 1048576).toFixed(1) + " MiB", 100 * total / bytes);
-  }
-
-  async function download(index) {
-    const offset = index * partSize;
-    const size = Math.min(partSize, bytes - offset);
-    const url = new URL("./demucs/" + prefix + String(index).padStart(2, "0"), location.href);
-    const cached = await cache?.match(url).catch(() => null);
-    if (cached) {
-      const data = new Uint8Array(await cached.arrayBuffer());
-      if (data.length === size) {
-        model.set(data, offset);
-        loaded[index] = size;
-        update();
-        return;
-      }
-    }
-    for (let attempt = 0; !cancelled; attempt++) {
-      const controller = new AbortController();
-      pending.add(controller);
-      let timer;
-      const resetTimer = () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => controller.abort(), 30000);
-      };
-      try {
-        resetTimer();
-        const response = await fetch(url, { signal: controller.signal, cache: "force-cache" });
-        if (!response.ok || !response.body) throw new Error("HTTP " + response.status);
-        const reader = response.body.getReader();
-        loaded[index] = 0;
-        update();
-        while (true) {
-          resetTimer();
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (loaded[index] + value.length > size) throw new Error("模型分段过大");
-          model.set(value, offset + loaded[index]);
-          loaded[index] += value.length;
-          update();
-        }
-        if (loaded[index] !== size) throw new Error("模型分段不完整");
-        if (cache) await cache.put(url, new Response(model.slice(offset, offset + size))).catch(() => {});
-        return;
-      } catch {
-        controller.abort();
-        if (attempt === 2) throw new Error("模型下载未完成。请检查网络并重新选择文件，已下载完成的分段可以复用。");
-      } finally {
-        clearTimeout(timer);
-        pending.delete(controller);
-      }
-    }
-  }
-
-  async function lane() {
-    while (!cancelled && next < count) await download(next++);
-  }
-  update();
-  try {
-    await Promise.all(Array.from({ length: 4 }, lane));
-    return model.buffer;
-  } catch (error) {
-    cancelled = true;
-    for (const controller of pending) controller.abort();
-    throw error;
-  }
-}
-
-function makeSeparatedBuffers(result, ctx, frames, sampleRate) {
-  return [result.vocals, result.accompaniment].map(channels => {
-    const buffer = ctx.createBuffer(2, frames, sampleRate);
-    channels.forEach((channel, index) => {
-      if (channel.length !== frames || channel.some(sample => !Number.isFinite(sample))) {
-        throw new Error("分离得到的音频无效。");
-      }
-      buffer.copyToChannel(channel, index);
-    });
-    return buffer;
-  });
-}
-
-async function separateInBrowser(file, ctx, info, onPreview, signal, resumeId) {
+async function decodeBrowserRecording(file, ctx, info) {
   info.textContent = "正在读取音频…";
   let original;
   try {
@@ -912,213 +490,83 @@ async function separateInBrowser(file, ctx, info, onPreview, signal, resumeId) {
     }
     original = clipped;
   }
-  const mono = original.numberOfChannels === 1;
-  info.textContent = "正在加载分离模型，第一次可能需要等待…";
-  let model = null;
-  if (lightTrial) {
-    const response = await fetch("./demucs/lite-m7.json", {
-      signal: AbortSignal.timeout(15000), cache: "force-cache"
-    });
-    if (!response.ok) throw new Error("轻量模型文件未就绪。");
-    const { bytes } = await response.json();
-    if (!Number.isInteger(bytes) || bytes < 1000000 || bytes >= 50000000) throw new Error("轻量模型大小有误。");
-    model = await loadBrowserModel(info, bytes, "model-35c8bd5-m7.part");
+  return original;
+}
+
+function splitStereoImage(original, ctx) {
+  const { length, sampleRate, numberOfChannels } = original;
+  const center = ctx.createBuffer(1, length, sampleRate);
+  const side = ctx.createBuffer(2, length, sampleRate);
+  const left = original.getChannelData(0);
+  const right = original.getChannelData(numberOfChannels === 1 ? 0 : 1);
+  const mid = center.getChannelData(0);
+  const sideLeft = side.getChannelData(0);
+  const sideRight = side.getChannelData(1);
+  for (let i = 0; i < length; i++) {
+    mid[i] = (left[i] + right[i]) * 0.5;
+    sideLeft[i] = (left[i] - right[i]) * 0.5;
+    sideRight[i] = -sideLeft[i];
   }
-  showSeparationProgress(info, "正在准备模型…");
-  const preview = onPreview && (result => {
-    const frames = result.vocals[0].length;
-    const tracks = makeSeparatedBuffers(result, ctx, frames, original.sampleRate);
-    const reference = ctx.createBuffer(original.numberOfChannels, frames, original.sampleRate);
-    for (let channel = 0; channel < original.numberOfChannels; channel++) {
-      reference.copyToChannel(original.getChannelData(channel).subarray(0, frames), channel);
-    }
-    if (mono) tracks[1] = widenMono(ctx, tracks[1]);
-    onPreview([...tracks, reference]);
-  });
-  const result = await inferInWorker(original.getChannelData(0).slice(), original.getChannelData(mono ? 0 : 1).slice(), model, info, preview, signal, resumeId);
-  showSeparationProgress(info, "正在准备试听音轨…", 99);
-  const tracks = makeSeparatedBuffers(result, ctx, original.length, original.sampleRate);
-  return { buffers: [...tracks, original], mono };
+  return [center, side, original];
 }
 
-function showPreviewChoice(show) {
-  const choice = $("preview-choice");
-  choice.hidden = !show;
-  choice.style.display = show ? "flex" : "none";
-}
-
-$("continue-full").onclick = () => {
-  if (!previewSession) return;
-  previewSession.accepted = true;
-  rememberJob({ accepted: true });
-  showPreviewChoice(false);
-  status("整首准备好后会从 1:00 继续播放。");
-  previewSession.choose(true);
-};
-
-function cancelPreview() {
-  if (!previewSession) return false;
-  showPreviewChoice(false);
-  previewSession.choose(false);
-  previewSession.controller.abort();
-  return true;
-}
-
-$("end-preview").onclick = cancelPreview;
-$("change-preview").onclick = () => {
-  if (!cancelPreview()) return;
-  $("recording").disabled = false;
-  $("recording").value = "";
-  $("recording").click();
-};
-
-async function processRecording(file, restore = null) {
-  if (separating) return;
-  if (!file) return;
-  const info = $("separation-info");
-  if (!uploadEnabled) return;
-  $("separation-meter").hidden = true;
-  const extension = file.name.match(/\.[^.]+$/)?.[0].toLowerCase();
-  if (!/^\.(mp3|wav|flac)$/.test(extension) || !file.size || file.size > MAX_BYTES) {
+async function processRecording(file, restore) {
+  if (!file || loading) return;
+  const info = $("file-info");
+  const input = $("recording");
+  input.value = "";
+  if (file.size > MAX_BYTES || !/\.(mp3|wav|flac)$/i.test(file.name)) {
     info.textContent = "请选择不超过 50 MB 的 MP3、WAV 或 FLAC 文件。";
-    $("recording").value = "";
     return;
   }
   pause();
-  separating = true;
-  previewReady = false;
-  showPreviewChoice(false);
-  const keys = ["voice", "music", "original"];
-  for (const key of keys) {
-    slots[key].revision++;
-    slots[key].loading = false;
-    $(key).disabled = true;
-  }
-  $("recording").disabled = true;
-  $("demo").disabled = true;
+  const previousId = sourceId;
+  sourceId = undefined;
+  saveSession();
+  if (previousId) separationStore.remove(previousId).catch(() => {});
+  for (const slot of Object.values(slots)) slot.buffer = null;
+  offset = 0;
+  mode = "spatial";
+  input.disabled = loading = true;
+  status("");
   refreshFiles();
-  $("remove-original").disabled = true;
-  let completed = false;
-  const usePreview = !localSeparation;
-  const controller = usePreview ? new AbortController() : null;
-  let decision;
-  if (usePreview) {
-    let choose;
-    decision = new Promise(resolve => { choose = resolve; });
-    previewSession = { controller, choose, accepted: false };
-  }
-  const startedAt = performance.now();
   try {
     const ctx = audioContext();
-    // Unlock during file selection, before the asynchronous checkpoint writes.
-    if (!restore) ctx.resume().catch(() => {});
-    if (usePreview && !lightTrial && typeof separationStore !== "undefined") {
-      if (restore) {
-        resumableJob = restore;
-        if (Number.isFinite(restore.venue?.x) && Number.isFinite(restore.venue?.z)) {
-          $("intensity").value = String(clamp(Number(restore.intensity), 0, 100));
-          move(restore.venue.x, restore.venue.z);
-        }
-        if (restore.accepted) {
-          previewSession.accepted = true;
-          previewSession.choose(true);
-        }
-      } else {
-        const previous = savedJob();
-        resumableJob = null;
-        try {
-          sessionStorage.removeItem(JOB_KEY);
-          if (previous?.id) await separationStore.remove(previous.id);
-          const id = Date.now() + "-" + crypto.randomUUID();
-          await separationStore.put([id, "source"], file);
-          resumableJob = { id, position: 0 };
-          rememberJob({});
-        } catch {
-          // Private browsing or a storage quota must not stop separation.
-        }
-      }
-    }
-    let result;
-    if (localSeparation) {
-      info.textContent = "正在上传到本机…";
-      result = unpackTracks(await uploadRecording(file, extension, info));
-      result.buffers = await Promise.all(result.tracks.map(track => ctx.decodeAudioData(track)));
-    } else {
-      result = await separateInBrowser(file, ctx, info, usePreview && !restore?.ready && !restore?.accepted ? buffers => {
-        keys.forEach((key, i) => acceptTrack(key, buffers[i]));
-        previewReady = true;
-        offset = Math.min(restore?.position ?? 0, PREVIEW_SECONDS);
-        setMode("spatial");
-        refreshFiles();
-        if (offset >= PREVIEW_SECONDS) {
-          status("是否等待整首效果完成");
-          showPreviewChoice(true);
-        } else {
-          status("前 1 分钟已就绪，点击「播放」试听。剩余音频仍在分离。");
-        }
-      } : null, controller?.signal, resumableJob?.id);
-    }
-    if (previewReady) {
-      if (!previewSession.accepted) {
-        showSeparationProgress(info, "整首已分离 · 试听结束后可选择继续", 100);
-      }
-      if (!await decision) throw controller.signal.reason;
-      pause();
-      offset = Math.min(PREVIEW_SECONDS, result.buffers[0].duration);
-    }
-    const { buffers } = result;
-    if (result.mono) buffers[1] = widenMono(ctx, buffers[1]);
-    keys.forEach((key, i) => {
-      acceptTrack(key, buffers[i]);
-      $(key).value = "";
-      $(key + "-info").textContent = "来自本次录音 · " + buffers[i].duration.toFixed(2) + " 秒";
-      delete $(key + "-info").dataset.error;
+    // File selection may unlock audio. Avoid waiting on browsers that require a Play click.
+    if (!restore && ctx.state !== "running") ctx.resume().catch(() => {});
+    const original = await decodeBrowserRecording(file, ctx, info);
+    const buffers = splitStereoImage(original, ctx);
+    Object.values(slots).forEach((slot, index) => {
+      slot.buffer = buffers[index];
+      slot.rms = measuredRms(slot.buffer);
     });
-    if (!previewReady) {
-      offset = Math.min(restore?.position ?? (restore?.accepted ? PREVIEW_SECONDS : 0), result.buffers[0].duration);
-      setMode("spatial");
-    }
-    info.textContent = file.name + (result.mono ? " · 分离完成，伴奏已立体声化。" : " · 分离完成，保留伴奏立体声。");
-    if (lightTrial || !localSeparation) {
-      info.textContent += " · 处理耗时 " + ((performance.now() - startedAt) / 1000).toFixed(1) + " 秒";
-    }
-    if (!localSeparation) $("separation-meter").value = 100;
-    completed = true;
-    if (restore?.mode === "original") mode = "original";
-    rememberJob({ ready: true, position: offset });
-  } catch (error) {
-    $("separation-meter").hidden = true;
-    if (controller?.signal.aborted) {
-      const id = resumableJob?.id;
-      resumableJob = null;
-      try { sessionStorage.removeItem(JOB_KEY); } catch {}
-      if (id) separationStore.remove(id).catch(() => {});
-      pause();
-      offset = 0;
-      for (const key of keys) slots[key].buffer = null;
-      info.textContent = "已结束这首歌的处理，可以选择新音频。";
+    if (restore) {
+      offset = clamp(restore.offset || 0, 0, original.duration);
+      $("intensity").value = restore.intensity ?? DEFAULT_INTENSITY;
+      if (restore.position) move(restore.position.x, restore.position.z);
+      mode = restore.mode === "original" ? "original" : "spatial";
+      sourceId = restore.id;
     } else {
-      info.textContent = "分离失败 · " + error.message + " 可重新选择文件。";
+      const id = String(Date.now()) + "-mix-" + Math.random().toString(36).slice(2);
+      sourceId = id;
+      separationStore.put([id, "source"], file).then(() => {
+        if (sourceId === id) saveSession();
+        else return separationStore.remove(id);
+      }).catch(() => {});
     }
-    $("recording").value = "";
+    info.textContent = file.name + " · 整轨空间版已就绪。";
+    status("点击播放，拖动场地图上的位置探索听感。");
+  } catch (error) {
+    for (const slot of Object.values(slots)) slot.buffer = null;
+    info.textContent = "无法读取音频 · " + error.message + " 可重新选择文件。";
   } finally {
-    separating = false;
-    previewReady = false;
-    previewSession = null;
-    showPreviewChoice(false);
-    $("recording").disabled = $("remove-original").disabled = false;
-    $("demo").disabled = false;
-    for (const key of keys) $(key).disabled = false;
+    input.disabled = loading = false;
     refreshFiles();
   }
-  if (completed && !restore) play();
+  if (!restore && length && context.state === "running") play();
 }
 
-$("recording").onchange = () => processRecording($("recording").files[0]);
-$("remove-original").onclick = () => {
-  $("original").value = "";
-  importTrack("original", null);
-};
+$("recording").onchange = event => processRecording(event.target.files[0]);
 $("play").onclick = () => {
   if (active) { pause(); status("已暂停。"); }
   else play();
@@ -1137,10 +585,7 @@ $("seek").onchange = event => {
   pause();
   offset = target;
   if (wasPlaying && offset < length) begin(offset);
-  if (offset >= length && previewReady && previewSession && !previewSession.accepted) {
-    status("是否等待整首效果完成");
-    showPreviewChoice(true);
-  } else if (wasPlaying && offset >= length) {
+  if (wasPlaying && offset >= length) {
     status("已到结尾。");
   }
   updateTransport();
@@ -1165,20 +610,18 @@ updateVenue();
 refreshFiles();
 requestAnimationFrame(frame);
 
-if (uploadEnabled && !localSeparation && !lightTrial && typeof separationStore !== "undefined") {
+if (location.protocol !== "file:") {
   separationStore.cleanOld().catch(() => {});
-  const restore = savedJob();
+  const restore = readSession();
   if (typeof restore?.id === "string") {
-    $("separation-info").textContent = "正在恢复上次处理进度…";
     separationStore.get([restore.id, "source"]).then(file => {
-      if (separating) return;
+      if (loading || length) return;
       if (file) processRecording(file, restore);
-      else $("separation-info").textContent = "找不到已保存的音频，请重新选择文件。";
-    }).catch(() => {
-      if (!separating) $("separation-info").textContent = "无法读取已保存的进度，请重新选择文件。";
-    });
+      else $("file-info").textContent = "找不到上次的音频，请重新选择文件。";
+    }).catch(() => {});
   }
 }
 </script>
 </body>
 </html>
+
