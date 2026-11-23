@@ -10,7 +10,8 @@
 h1,h2,p {margin:0} h1 {font-size:2.3rem} h2 {font-size:1.15rem} .muted,small {color:#b5bfd0}
 .grid {display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:18px;margin:22px 0}
 section {background:#191f2c;border:1px solid #30394b;border-radius:16px;padding:20px}
-label.file {display:block;margin-top:14px} input[type=file] {display:block;max-width:100%;margin:4px 0}
+label.file {display:block;margin-top:14px}
+[hidden] {display:none !important} input[type=file] {display:block;max-width:100%;margin:4px 0}
 small {display:block;overflow-wrap:anywhere} small[data-error] {color:#ffada5}
 button {color:inherit;background:#242e42;border:1px solid #4b5970;border-radius:8px;padding:8px 12px;font:inherit;cursor:pointer}
 button:disabled {opacity:.52;cursor:default} button[aria-pressed=true],#play:not(:disabled) {background:#9be8cb;color:#101d1d;border-color:#9be8cb}
@@ -58,11 +59,15 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 <section aria-labelledby="venue-title">
 <h2 id="venue-title">拖动我的位置，探索听感</h2>
 <p class="muted">可拖动、点选，或聚焦场地图后用方向键移动。看台朝向随座位转向舞台。</p>
+<div class="controls" role="group" aria-label="场馆模式" id="venue-modes">
+<button type="button" data-venue="arena" aria-pressed="true">演唱会</button>
+<button type="button" data-venue="livehouse" aria-pressed="false">Livehouse</button>
+</div>
 <div id="venue" tabindex="0" role="group" aria-label="虚拟场地，可用方向键移动">
 <div class="stage" id="stage">舞台 · 歌手</div>
 <div class="floor" id="floor">
 <div class="inner-floor" id="inner-floor" aria-hidden="true"><span class="zone-label">内场</span></div>
-<span class="zone-label stand-label" aria-hidden="true">看台</span>
+<span class="zone-label stand-label" id="stand-label" aria-hidden="true">看台</span>
 <span id="listener"><span id="facing" aria-hidden="true"></span>我</span>
 </div>
 </div>
@@ -94,6 +99,7 @@ const presets = {
   left: { x: -4.5, z: 5 },
   right: { x: 4.5, z: 5 }
 };
+let venueMode = "arena";
 let position = { ...presets.front };
 let context, graph, active;
 let offset = 0;
@@ -116,7 +122,7 @@ function saveSession() {
     if (!sourceId) return sessionStorage.removeItem(JOB_KEY);
     sessionStorage.setItem(JOB_KEY, JSON.stringify({
       id: sourceId, offset: positionNow(), position, mode,
-      intensity: $("intensity").value
+      intensity: $("intensity").value, venue: venueMode
     }));
   } catch { /* Playback can continue when storage is unavailable. */ }
 }
@@ -152,7 +158,9 @@ function seatElevation({ x, z }) {
 }
 
 // 舞台几何中心是平面坐标原点。Web Audio 中 +X 对应听众右耳，-Z 对应正前。
-function stageDirection({ x, z }) {
+function stageDirection({ x, z }, venue = venueMode) {
+  // 同一张图映射到更小的房间。所有座位在同一层，音箱在耳高上方 3.2 米。
+  if (venue === "livehouse") return { x: -x * 0.55, y: 3.2, z: -z * 0.5 };
   const { y, tier } = seatElevation({ x, z });
   const bearing = Math.atan2(-x, z);
   // 看台转向舞台中心时恰好居中。额外转最多 12°，保留侧看台的同侧来声。
@@ -165,12 +173,26 @@ function stageDirection({ x, z }) {
   return { x: Math.sin(relative) * distance, y, z: -Math.cos(relative) * distance };
 }
 
-function venueParameters({ x, z }, intensity) {
-  const distance = Math.hypot(x, z);
+function venueParameters({ x, z }, intensity, venue = venueMode) {
+  const direction = stageDirection({ x, z }, venue);
+  const distance = Math.hypot(direction.x, direction.z);
+  if (venue === "livehouse") {
+    const back = clamp((distance - 0.8) / 6, 0, 1);
+    return {
+      ...direction,
+      direct: 0.98 - 0.16 * back,
+      cutoff: 18000 - 1800 * back,
+      presence: 0.9 * back,
+      vocalWrap: intensity * 0.12,
+      voiceWet: intensity * (0.20 + 0.25 * back),
+      musicWet: intensity * (0.16 + 0.14 * back),
+      musicSide: intensity * 0.12
+    };
+  }
   const near = 1.6;
   const far = clamp((distance - near) / 11, 0, 1);
   return {
-    ...stageDirection({ x, z }),
+    ...direction,
     direct: 0.96 - 0.29 * far,
     cutoff: 17300 - 3200 * far,
     presence: 2.2 * far,
@@ -204,13 +226,20 @@ function paintPosition() {
     const preset = presets[button.dataset.position];
     button.setAttribute("aria-pressed", preset.x === position.x && preset.z === position.z);
   }
-  const seat = seatElevation(position);
-  const height = Math.round(seat.y * 10) / 10;
+  const livehouse = venueMode === "livehouse";
+  $("inner-floor").hidden = livehouse;
+  $("stand-label").textContent = livehouse ? "单层观众区" : "看台";
+  $("presets").querySelector('[data-position="rear"]').textContent = livehouse ? "后场中央" : "后排中央";
+  for (const button of $("venue-modes").querySelectorAll("button")) {
+    button.setAttribute("aria-pressed", button.dataset.venue === venueMode);
+  }
+  const zone = livehouse ? "单层观众区" : seatElevation(position).zone;
+  const { x, y } = stageDirection(position);
+  const height = Math.round(y * 10) / 10;
   const direction = height > 0 ? "上方" : "下方";
   const relative = height === 0 ? "舞台来声与耳朵等高" : "舞台来声在耳朵" + direction + "约 " + Math.abs(height).toFixed(1) + " 米";
-  const { x } = stageDirection(position);
   const side = Math.abs(x) < 0.05 ? "正前" : x < 0 ? "左前" : "右前";
-  const label = seat.zone + " · " + side + " · " + relative;
+  const label = zone + " · " + side + " · " + relative;
   $("seat-position").textContent = label;
   $("venue").setAttribute("aria-label", "虚拟场地，可用方向键移动。" + label);
 }
@@ -269,9 +298,21 @@ $("presets").onclick = event => {
   if (preset) move(preset.x, preset.z);
 };
 $("intensity").oninput = updateVenue;
+$("venue-modes").onclick = event => {
+  const next = event.target.dataset.venue;
+  if (!next || next === venueMode) return;
+  const wasPlaying = Boolean(active);
+  pause();
+  venueMode = next;
+  if (wasPlaying && offset < length) begin(offset);
+  else updateVenue();
+  saveSession();
+};
 
-function makeImpulse(ctx) {
-  const ir = ctx.createBuffer(2, Math.floor(ctx.sampleRate * 2.4), ctx.sampleRate);
+function makeImpulse(ctx, venue = venueMode) {
+  const compact = venue === "livehouse";
+  const timeScale = compact ? 0.42 : 1;
+  const ir = ctx.createBuffer(2, Math.floor(ctx.sampleRate * (compact ? 0.8 : 2.4)), ctx.sampleRate);
   const reflections = [
     [[0.023, 0.31], [0.043, 0.24], [0.077, 0.18], [0.111, 0.11]],
     [[0.031, 0.31], [0.056, 0.24], [0.088, 0.18], [0.128, 0.11]]
@@ -279,20 +320,20 @@ function makeImpulse(ctx) {
   let seed = 12345;
   for (let channel = 0; channel < 2; channel++) {
     const data = ir.getChannelData(channel);
-    const onset = Math.floor(ctx.sampleRate * (channel ? 0.063 : 0.051));
+    const onset = Math.floor(ctx.sampleRate * (channel ? 0.063 : 0.051) * timeScale);
     let smooth = 0;
     let energy = 0;
     for (let i = onset; i < data.length; i++) {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
       smooth = 0.55 * smooth + 0.45 * (seed / 2147483648 - 1);
       const elapsed = (i - onset) / ctx.sampleRate;
-      data[i] = smooth * Math.min(elapsed / 0.06, 1) * Math.exp(-elapsed * 3.1);
+      data[i] = smooth * Math.min(elapsed / (0.06 * timeScale), 1) * Math.exp(-elapsed * 3.1 / timeScale);
       energy += data[i] ** 2;
     }
     const tailScale = 0.48 / Math.sqrt(Math.max(energy, 1e-9));
     for (let i = onset; i < data.length; i++) data[i] *= tailScale;
     for (const [seconds, gain] of reflections[channel]) {
-      const tap = Math.floor(ctx.sampleRate * seconds);
+      const tap = Math.floor(ctx.sampleRate * seconds * timeScale);
       data[tap] += gain * 0.7;
       data[tap + 1] += gain * 0.3;
     }
@@ -602,6 +643,8 @@ async function processRecording(file, restore) {
     if (restore) {
       offset = clamp(restore.offset || 0, 0, original.duration);
       $("intensity").value = restore.intensity ?? DEFAULT_INTENSITY;
+      venueMode = restore.venue === "livehouse" ? "livehouse" : "arena";
+      updateVenue();
       if (restore.position) move(restore.position.x, restore.position.z);
       mode = restore.mode === "original" ? "original" : "spatial";
       sourceId = restore.id;
