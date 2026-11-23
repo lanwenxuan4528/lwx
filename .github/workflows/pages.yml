@@ -20,24 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: actions/configure-pages@v5
-      - name: Assemble static site and install the pinned browser model
+      - name: Assemble static site
         run: |
-          set -eu
           mkdir -p site/demucs
           cp index.html site/
-          cp demucs/worker.js demucs/session-store.js site/demucs/
-          upstream=https://raw.githubusercontent.com/bengfarrell/demucs-wasm/35c8bd5b74c56f630082058179cd8f57cb192fb2
-          for name in LICENSE demucs_onnx_simd.js demucs_onnx_simd.wasm; do
-            curl --fail --location --retry 3 --max-time 300 "$upstream/$name" -o "site/demucs/$name"
-          done
-          curl --fail --location --retry 3 --max-time 300 "$upstream/models/htdemucs.ort.gzipped" -o site/demucs/htdemucs.ort.gzipped
-          test "$(wc -c < site/demucs/htdemucs.ort.gzipped)" -eq 54471499
-          gzip -t site/demucs/htdemucs.ort.gzipped
-          split -b 7M -d -a 2 site/demucs/htdemucs.ort.gzipped site/demucs/model-35c8bd5.part
-          lite_model="$(mktemp)"
-          python3 demucs/compact_model.py site/demucs/htdemucs.ort.gzipped "$lite_model"
-          printf '{"bytes":%s}\n' "$(wc -c < "$lite_model")" > site/demucs/lite-m7.json
-          split -b 7M -d -a 2 "$lite_model" site/demucs/model-35c8bd5-m7.part
+          cp demucs/session-store.js site/demucs/
       - uses: actions/upload-pages-artifact@v4
         with:
           path: site
@@ -55,3 +42,4 @@ jobs:
           exit 1
       - id: publish
         uses: actions/deploy-pages@v4
+
