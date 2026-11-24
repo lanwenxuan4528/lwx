@@ -37,7 +37,8 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 .entry h1 {font-size:clamp(2rem,9vw,3rem);line-height:1.1;margin:14px 0}
 .entry p {color:#b1b5a8;font-size:.88rem}
 .entry-home {display:flex;flex-direction:column;min-height:calc(100svh - 48px)}
-.entry-intro {margin:auto 0}
+.entry-intro {margin:clamp(42px,17svh,160px) 0 24px}
+#entry-status:empty {display:none}
 .entry-intro span {display:block;color:#a1a78c}
 .upload-tile {padding:15px;background:#20221e;border:1px solid #363a2d;border-radius:9px;display:flex;align-items:center;gap:14px;cursor:pointer;font-weight:700}
 .upload-icon {background:#d7f657;color:#192003;padding:9px 12px;border-radius:5px}
@@ -88,7 +89,7 @@ html, body {background:#0c0e0c;overflow-x:clip}
 <p>上传一段你喜欢的音乐，走进不同的空间，听见现场。</p></div>
 <label class="upload-tile"><span class="upload-icon" aria-hidden="true">↑</span><span>上传你的音乐<small>MP3、WAV、FLAC · 最大 50 MB</small></span>
 <input class="visually-hidden" id="entry-file" type="file" accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/flac"></label>
-<small class="entry-note" id="entry-status" role="status">超过 4 分 30 秒会裁掉末尾</small>
+<small class="entry-note" id="entry-status" role="status"></small>
 </div>
 <div id="entry-scenes" hidden>
 <div class="entry-top"><button class="entry-back" id="entry-back" aria-label="返回上传">‹</button><small>02 / 03</small></div>
@@ -150,7 +151,6 @@ html, body {background:#0c0e0c;overflow-x:clip}
 "use strict";
 
 const $ = id => document.getElementById(id);
-const MAX_SECONDS = 270;
 const DEFAULT_INTENSITY = 65;
 const MAX_BYTES = 50_000_000;
 const slots = {};
@@ -246,7 +246,7 @@ function venueParameters({ x, z }, intensity, venue = venueMode) {
       ...direction,
       direct: 0.98 - 0.16 * back,
       cutoff: 18000 - 1800 * back,
-      presence: 0.9 * back,
+      presence: 2.0 + 0.9 * back,
       vocalWrap: intensity * 0.12,
       voiceWet: intensity * (0.20 + 0.25 * back),
       musicWet: intensity * (0.16 + 0.14 * back),
@@ -259,7 +259,7 @@ function venueParameters({ x, z }, intensity, venue = venueMode) {
     ...direction,
     direct: 0.96 - 0.29 * far,
     cutoff: 17300 - 3200 * far,
-    presence: 2.2 * far,
+    presence: 1.8 + 2.2 * far,
     vocalWrap: intensity * 0.48 * (1 - far) ** 2,
     voiceWet: intensity * (0.26 + 0.49 * far),
     musicWet: intensity * (0.22 + 0.21 * far),
@@ -434,6 +434,7 @@ function buildGraph(ctx) {
   voiceInput.channelCountMode = "explicit";
   const filter = ctx.createBiquadFilter();
   filter.type = "lowpass";
+  // 仅给舞台直达声补清晰度，混响发送仍取自未均衡的中央声。
   const presence = ctx.createBiquadFilter();
   presence.type = "peaking";
   presence.frequency.value = 2750;
@@ -636,7 +637,7 @@ function refreshFiles() {
   updateTransport();
 }
 
-async function decodeBrowserRecording(file, ctx, info) {
+async function decodeBrowserRecording(file, info) {
   info.textContent = "正在读取音频…";
   let original;
   try {
@@ -646,14 +647,6 @@ async function decodeBrowserRecording(file, ctx, info) {
   }
   if (original.duration < .1) throw new Error("音频不足 0.1 秒。");
   if (![1, 2].includes(original.numberOfChannels)) throw new Error("仅支持单声道或立体声录音。");
-  const maxFrames = MAX_SECONDS * original.sampleRate;
-  if (original.length > maxFrames) {
-    const clipped = ctx.createBuffer(original.numberOfChannels, maxFrames, original.sampleRate);
-    for (let channel = 0; channel < original.numberOfChannels; channel++) {
-      clipped.copyToChannel(original.getChannelData(channel).subarray(0, maxFrames), channel);
-    }
-    original = clipped;
-  }
   return original;
 }
 
@@ -697,7 +690,7 @@ async function processRecording(file, restore) {
     const ctx = audioContext();
     // File selection may unlock audio. Avoid waiting on browsers that require a Play click.
     if (!restore && ctx.state !== "running") ctx.resume().catch(() => {});
-    const original = await decodeBrowserRecording(file, ctx, info);
+    const original = await decodeBrowserRecording(file, info);
     const buffers = splitStereoImage(original, ctx);
     Object.values(slots).forEach((slot, index) => {
       slot.buffer = buffers[index];
@@ -783,7 +776,7 @@ $("entry-file").onchange = async event => {
 };
 
 $("entry-back").onclick = () => {
-  $("entry-status").textContent = "超过 4 分 30 秒会裁掉末尾";
+  $("entry-status").textContent = "";
   showScreen("entry-home", "entry-file", true);
 };
 
