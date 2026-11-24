@@ -31,31 +31,83 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 .transport-panel {margin-top:16px;padding-top:14px;border-top:1px solid #30394b}
 #file-note a {display:inline-block;margin-bottom:4px;color:#9be8cb;font-weight:700}
 @media(max-width:735px){.grid{grid-template-columns:1fr}main{padding:20px 12px}}
+
+.entry {box-sizing:border-box;position:relative;width:min(100%,440px);min-height:100svh;margin:auto;padding:24px;background:radial-gradient(ellipse at 60% 0,#252b13 0,transparent 42%),#0c0e0c;color:#f6f7ee}
+.entry-kicker,.entry-brand {color:#d7f657;font-weight:750;letter-spacing:.16em;font-size:.75rem}
+.entry h1 {font-size:clamp(2rem,9vw,3rem);line-height:1.1;margin:14px 0}
+.entry p {color:#b1b5a8;font-size:.88rem}
+.entry-home {display:flex;flex-direction:column;min-height:calc(100svh - 48px)}
+.entry-intro {margin:auto 0}
+.entry-intro span {display:block;color:#a1a78c}
+.upload-tile {padding:15px;background:#20221e;border:1px solid #363a2d;border-radius:9px;display:flex;align-items:center;gap:14px;cursor:pointer;font-weight:700}
+.upload-icon {background:#d7f657;color:#192003;padding:9px 12px;border-radius:5px}
+.upload-tile small {color:#b1b5a8;font-weight:400}
+.upload-tile:focus-within {outline:2px solid #d7f657}
+.upload-tile input.visually-hidden {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.entry-top {display:flex;justify-content:space-between;align-items:center;margin-bottom:34px}
+.entry-top small {color:#b1b5a8}
+.entry-back {border-radius:50%;background:#171a16;border-color:#343729}
+.scene-card {display:flex;flex-direction:column;justify-content:space-between;width:100%;min-height:166px;margin:12px 0;padding:14px;text-align:left;background-size:100% 100%,100% 200%;border:1px solid #404236;border-radius:6px;background-repeat:no-repeat;background-color:#171a16}
+.scene-card[data-venue="arena"] {background-image:linear-gradient(180deg,#05050a35,#080909e8 86%),url("./unlive-scenes.webp");background-position:center top}
+.scene-card[data-venue="livehouse"] {background-image:linear-gradient(180deg,#09050335,#080909e8 86%),url("./unlive-scenes.webp");background-position:center bottom}
+.scene-card[aria-pressed=true] {background-color:#171a16;color:white;border-color:#d7f657}
+.scene-card small {color:#d2d5c8;font-size:.68rem}
+.scene-card strong {font-size:1.2rem}
+.scene-card b {align-self:end;color:#d7f657}
+.entry-next {display:flex;justify-content:space-between;width:100%;margin-top:18px;background:#d7f657;color:#171c0b;border:none;font-weight:750}
+.entry-note {text-align:center;margin-top:15px;color:#a1a78c}
+
+html, body {background:#0c0e0c;overflow-x:clip}
+.player-screen .entry-top {margin-bottom:22px}
+.player-screen h1 {font-size:clamp(1.85rem,7vw,2.5rem)}
+.player-screen h2 {font-size:1rem}
+.player-screen .grid {display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+.player-screen .grid > section {background:#171a16;border:1px solid #343729;border-radius:9px;padding:14px;min-width:0}
+.player-screen button {min-height:44px;background:#20221e;border-color:#404536}
+.player-screen button[aria-pressed=true], .player-screen #play:not(:disabled) {background:#d7f657;border-color:#d7f657;color:#192003}
+.player-screen .controls {gap:6px}
+.player-screen .controls button {padding:6px 9px;font-size:.82rem;flex:1}
+.player-screen .range {accent-color:#d7f657}
+.player-screen #venue {height:clamp(170px,54vw,218px);background:linear-gradient(#262c1d,#12150f);border-color:#404536}
+.player-screen .stage {background:#3e4826}
+.player-screen .floor {border-color:#687350}
+.player-screen .inner-floor {border-color:#d7f65780;background:#d7f65718}
+.player-screen #listener,.player-screen #facing::before {background:#d7f657}
+.player-screen #status {color:#d7f657;margin:0 0 8px;min-height:0}
+.player-screen #status:empty {display:none}
+.player-screen .transport-panel {margin:0;padding:0;border:0}
+@media(max-width:360px) {.entry {padding:16px}.entry-home {min-height:calc(100svh - 32px)}}
 </style>
 </head>
 <body>
-<main>
-<header><h1>Unlive</h1><p class="muted">戴上耳机，移动你在场地中的位置。同一位置的空间感会因耳机和听者而异。</p></header>
-<div class="grid">
-<section aria-label="音频与播放">
-<div>
-<h2>导入音频</h2>
-<p class="muted">支持 MP3、WAV 和 FLAC，最大 50 MB，建议优先使用 MP3 或 WAV。超过 4 分 30 秒会自动裁掉末尾。</p>
-<label class="file">选择音频<input id="recording" type="file" accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/flac"></label>
-<small id="file-info" role="status"></small>
+<section class="entry" id="entry">
+<div class="entry-home" id="entry-home">
+<div class="entry-brand">◖ UNLIVE</div>
+<div class="entry-intro"><div class="entry-kicker">— 虚拟现场聆听</div>
+<h1>让未曾唱响的现场，<span>也能够被听见</span></h1>
+<p>上传一段你喜欢的音乐，走进不同的空间，听见现场。</p></div>
+<label class="upload-tile"><span class="upload-icon" aria-hidden="true">↑</span><span>上传你的音乐<small>MP3、WAV、FLAC · 最大 50 MB</small></span>
+<input class="visually-hidden" id="entry-file" type="file" accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/flac"></label>
+<small class="entry-note" id="entry-status" role="status">超过 4 分 30 秒会裁掉末尾</small>
 </div>
-<p id="status" role="status"></p>
-<div class="transport-panel" role="group" aria-labelledby="play-heading">
-<h2 id="play-heading">试听与对比</h2>
-<div class="controls">
-<button id="play" disabled>播放</button><button id="spatial" aria-pressed="true">空间版</button>
-<button id="dry" aria-pressed="false" disabled aria-describedby="compare-note">原版</button><button id="reset">重置</button>
+<div id="entry-scenes" hidden>
+<div class="entry-top"><button class="entry-back" id="entry-back" aria-label="返回上传">‹</button><small>02 / 03</small></div>
+<div class="entry-kicker">— SELECT YOUR SPACE</div>
+<h1>今晚，去哪个现场？</h1>
+<p>选择一种空间，感受截然不同的声音氛围。</p>
+<div id="scene-cards" role="group" aria-label="选择场馆">
+<button class="scene-card" data-venue="arena" aria-pressed="false"><small>01</small><span><strong>演唱会</strong><small>CONCERT</small></span><small>大型舞台，开阔声场　<span class="scene-check" aria-hidden="true">○</span></small></button>
+<button class="scene-card" data-venue="livehouse" aria-pressed="false"><small>02</small><span><strong>LIVEHOUSE</strong><small>LIVE VENUE</small></span><small>近距离舞台，紧凑声场　<span class="scene-check" aria-hidden="true">○</span></small></button>
 </div>
-<small id="compare-note">导入音频后即可切换原版和空间版。</small>
-<label class="range-label" for="seek">播放进度 <output id="clock">0:00 / 0:00</output></label>
-<input class="range" id="seek" type="range" value="0" max="0" min="0" step="0.01" disabled>
+<button class="entry-next" id="entry-next" disabled><span id="entry-next-text">请选择一个现场</span><span aria-hidden="true">→</span></button>
+<small class="entry-note">戴好你的耳机，准备就绪</small>
 </div>
 </section>
+<main class="entry player-screen" id="player-screen" hidden>
+<div class="entry-top"><button class="entry-back" id="player-back" type="button" aria-label="返回选场">‹</button><small>03 / 03</small></div>
+<div class="entry-kicker" id="player-venue">演唱会</div>
+<h1>现场试听</h1>
+<div class="grid">
 <section aria-labelledby="venue-title">
 <h2 id="venue-title">拖动我的位置，探索听感</h2>
 <p class="muted">可拖动、点选，或聚焦场地图后用方向键移动。看台朝向随座位转向舞台。</p>
@@ -71,13 +123,25 @@ button:focus-visible,input:focus-visible,#venue:focus-visible {outline:2px solid
 <span id="listener"><span id="facing" aria-hidden="true"></span>我</span>
 </div>
 </div>
-<small id="seat-position"></small>
 <div class="controls" id="presets">
 <button data-position="front">前排中央</button><button data-position="rear">后排中央</button><button data-position="left">左侧</button><button data-position="right">右侧</button>
 </div>
 <label class="range-label" for="intensity">现场感强度 <output id="strength">65%</output></label>
 <input class="range" id="intensity" type="range" min="0" max="100" value="65">
 <small>混响为程序合成，用于模拟场地听感。</small>
+</section>
+<section class="player-controls" aria-label="音频与播放">
+<p id="status" role="status"></p>
+<div class="transport-panel" role="group" aria-labelledby="play-heading">
+<h2 id="play-heading">试听与对比</h2>
+<div class="controls">
+<button id="play" disabled>播放</button><button id="spatial" aria-pressed="true">空间版</button>
+<button id="dry" aria-pressed="false" disabled aria-describedby="compare-note">原版</button><button id="reset">重置</button>
+</div>
+<small id="compare-note">导入音频后即可切换原版和空间版。</small>
+<label class="range-label" for="seek">播放进度 <output id="clock">0:00 / 0:00</output></label>
+<input class="range" id="seek" type="range" value="0" max="0" min="0" step="0.01" disabled>
+</div>
 </section>
 </div>
 </main>
@@ -154,13 +218,13 @@ function seatElevation({ x, z }) {
   const rear = (z - inner.rear) / (12 - inner.rear);
   // 取更靠外的一侧，转角不会比其它外缘更低，交界处连续。
   const tier = clamp(Math.max(side, rear), 0, 1);
-  return { zone: tier > 0 ? "看台" : "内场", y: 2 - 12 * tier, tier };
+  return { zone: tier > 0 ? "看台" : "内场", y: 3 - 12 * tier, tier };
 }
 
 // 舞台几何中心是平面坐标原点。Web Audio 中 +X 对应听众右耳，-Z 对应正前。
 function stageDirection({ x, z }, venue = venueMode) {
-  // 同一张图映射到更小的房间。所有座位在同一层，音箱在耳高上方 3.2 米。
-  if (venue === "livehouse") return { x: -x * 0.55, y: 3.2, z: -z * 0.5 };
+  // 同一张图映射到更小的房间。所有座位在同一层，音箱在耳高上方 4.2 米。
+  if (venue === "livehouse") return { x: -x * 0.55, y: 4.2, z: -z * 0.5 };
   const { y, tier } = seatElevation({ x, z });
   const bearing = Math.atan2(-x, z);
   // 看台转向舞台中心时恰好居中。额外转最多 12°，保留侧看台的同侧来声。
@@ -229,6 +293,7 @@ function paintPosition() {
   const livehouse = venueMode === "livehouse";
   $("inner-floor").hidden = livehouse;
   $("stand-label").textContent = livehouse ? "单层观众区" : "看台";
+  $("player-venue").textContent = livehouse ? "LIVEHOUSE" : "演唱会";
   $("presets").querySelector('[data-position="rear"]').textContent = livehouse ? "后场中央" : "后排中央";
   for (const button of $("venue-modes").querySelectorAll("button")) {
     button.setAttribute("aria-pressed", button.dataset.venue === venueMode);
@@ -240,7 +305,6 @@ function paintPosition() {
   const relative = height === 0 ? "舞台来声与耳朵等高" : "舞台来声在耳朵" + direction + "约 " + Math.abs(height).toFixed(1) + " 米";
   const side = Math.abs(x) < 0.05 ? "正前" : x < 0 ? "左前" : "右前";
   const label = zone + " · " + side + " · " + relative;
-  $("seat-position").textContent = label;
   $("venue").setAttribute("aria-label", "虚拟场地，可用方向键移动。" + label);
 }
 
@@ -612,9 +676,8 @@ function splitStereoImage(original, ctx) {
 
 async function processRecording(file, restore) {
   if (!file || loading) return;
-  const info = $("file-info");
-  const input = $("recording");
-  input.value = "";
+  const info = $("entry-status");
+  const input = $("entry-file");
   if (file.size > MAX_BYTES || !/\.(mp3|wav|flac)$/i.test(file.name)) {
     info.textContent = "请选择不超过 50 MB 的 MP3、WAV 或 FLAC 文件。";
     return;
@@ -665,10 +728,84 @@ async function processRecording(file, restore) {
     input.disabled = loading = false;
     refreshFiles();
   }
-  if (!restore && length && context.state === "running") play();
 }
 
-$("recording").onchange = event => processRecording(event.target.files[0]);
+let selectedScene;
+function selectEntryScene(next) {
+  selectedScene = next;
+  for (const card of $("scene-cards").querySelectorAll("button")) {
+    const selected = card.dataset.venue === next;
+    card.setAttribute("aria-pressed", selected);
+    card.querySelector(".scene-check").textContent = selected ? "●" : "○";
+  }
+  $("entry-next").disabled = !next;
+  $("entry-next-text").textContent = next ? "进入现场" : "请选择一个现场";
+}
+
+function showScreen(next, focusId, back = false) {
+  $("entry").hidden = next === "player-screen";
+  $("entry-home").hidden = next !== "entry-home";
+  $("entry-scenes").hidden = next !== "entry-scenes";
+  $("player-screen").hidden = next !== "player-screen";
+  window.scrollTo(0, 0);
+  const screen = $(next);
+  if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    screen.animate([
+      { opacity: 0, transform: "translateX(" + (back ? -12 : 12) + "px)" },
+      { opacity: 1, transform: "translateX(0)" }
+    ], { duration: 240, easing: "cubic-bezier(.22,.72,.25,1)" });
+  }
+  if (focusId) $(focusId).focus({ preventScroll: true });
+}
+
+$("entry-file").onchange = async event => {
+  const input = event.target;
+  const file = input.files[0];
+  if (!file || loading) return;
+  if (file.size > MAX_BYTES || !/\.(mp3|wav|flac)$/i.test(file.name)) {
+    $("entry-status").textContent = "请选择不超过 50 MB 的 MP3、WAV 或 FLAC 文件。";
+    input.value = "";
+    return;
+  }
+  input.disabled = true;
+  $("entry-status").textContent = "正在读取音频…";
+  try {
+    await processRecording(file);
+    if (!length) {
+      return;
+    }
+    selectEntryScene(undefined);
+    showScreen("entry-scenes", "entry-back");
+  } finally {
+    input.disabled = false;
+    input.value = "";
+  }
+};
+
+$("entry-back").onclick = () => {
+  $("entry-status").textContent = "超过 4 分 30 秒会裁掉末尾";
+  showScreen("entry-home", "entry-file", true);
+};
+
+$("scene-cards").onclick = event => {
+  const card = event.target.closest("[data-venue]");
+  if (card) selectEntryScene(card.dataset.venue);
+};
+
+$("entry-next").onclick = () => {
+  if (!selectedScene || !length) return;
+  venueMode = selectedScene;
+  showScreen("player-screen", "play");
+  updateVenue();
+  play();
+};
+
+$("player-back").onclick = () => {
+  pause();
+  selectEntryScene(venueMode);
+  showScreen("entry-scenes", "entry-next", true);
+};
+
 $("play").onclick = () => {
   if (active) { pause(); status("已暂停。"); }
   else play();
@@ -718,8 +855,12 @@ if (location.protocol !== "file:") {
   if (typeof restore?.id === "string") {
     separationStore.get([restore.id, "source"]).then(file => {
       if (loading || length) return;
-      if (file) processRecording(file, restore);
-      else $("file-info").textContent = "找不到上次的音频，请重新选择文件。";
+      if (file) processRecording(file, restore).then(() => {
+        if (!length) return;
+        selectEntryScene(venueMode);
+        showScreen("entry-scenes");
+      });
+      else $("entry-status").textContent = "找不到上次的音频，请重新选择文件。";
     }).catch(() => {});
   }
 }
