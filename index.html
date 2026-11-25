@@ -467,6 +467,18 @@ function buildGraph(ctx) {
   const widthLeft = gain(0), widthRight = gain(0);
   const crossLeft = gain(0), crossRight = gain(0);
   const spatial = gain(1);
+  // Enhance kick weight and bass on the dry spatial mix, before output protection.
+  const drySpatial = gain(1);
+  const bassWeight = ctx.createBiquadFilter();
+  bassWeight.type = "lowshelf";
+  bassWeight.frequency.value = 95;
+  bassWeight.gain.value = 1.8;
+  const kickBody = ctx.createBiquadFilter();
+  kickBody.type = "peaking";
+  kickBody.frequency.value = 75;
+  kickBody.Q.value = 1.15;
+  kickBody.gain.value = 3.0;
+  drySpatial.connect(bassWeight).connect(kickBody).connect(spatial);
   const original = gain(0);
   const transport = gain(0);
   const headroom = gain(0.58);
@@ -477,17 +489,17 @@ function buildGraph(ctx) {
   compressor.attack.value = 0.003;
   compressor.release.value = 0.15;
 
-  voiceInput.connect(filter).connect(presence).connect(pan).connect(voiceDirect).connect(spatial);
+  voiceInput.connect(filter).connect(presence).connect(pan).connect(voiceDirect).connect(drySpatial);
   voiceInput.connect(voiceSend).connect(room);
   voiceInput.connect(wrapSend).connect(wrapRoom).connect(wrapTone).connect(spatial);
-  musicInput.connect(spatial);
+  musicInput.connect(drySpatial);
   // 只提高伴奏的左右差分。中央成分与原来的干声保持一致。
   musicInput.connect(split);
   split.connect(widthLeft, 0).connect(merge, 0, 0);
   split.connect(widthRight, 1).connect(merge, 0, 1);
   split.connect(crossLeft, 1).connect(merge, 0, 0);
   split.connect(crossRight, 0).connect(merge, 0, 1);
-  merge.connect(spatial);
+  merge.connect(drySpatial);
   musicInput.connect(musicSend).connect(room);
   room.connect(roomTone).connect(spatial);
   spatial.connect(transport);
