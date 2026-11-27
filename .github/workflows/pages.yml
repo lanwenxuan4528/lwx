@@ -23,7 +23,7 @@ jobs:
       - name: Assemble static site
         run: |
           mkdir -p site/demucs
-          cp index.html unlive-scenes.webp site/
+          cp index.html unlive-scenes.webp portfolio.html unlive_case_.pdf unlive_demo.mp4 unlive_test.pdf site/
           cp demucs/session-store.js site/demucs/
       - uses: actions/upload-pages-artifact@v4
         with:
